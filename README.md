@@ -239,10 +239,10 @@ For each location:
    - Generate configurations with 1 to N units
    
 2. **Engineering Pre-filter**:
-   - Load factor bounds (30-90%)
+   - Load factor bounds 
    - Unit count limits by turbine class
    - Temperature derating check
-   - N-1 redundancy requirement
+   - Optional N-1 redundancy requirement
    
 3. **Reliability Analysis**:
    - Calculate EUE from forced outages (probabilistic)
