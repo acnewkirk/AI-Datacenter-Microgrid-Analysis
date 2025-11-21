@@ -47,27 +47,27 @@ The analysis accounts for:
 
 ### Module Responsibilities
 
-#### Core Analysis Modules
+#### Facility Modules
 
 - **`config.py`**: Central configuration management (costs, efficiencies, design parameters)
 - **`datacenter_analyzer.py`**: Top-level coordinator that integrates cooling with facility load
 - **`it_facil.py`**: IT load calculations from GPU specs, handles hourly load profiles
 - **`pue_tool.py`**: Location-specific cooling system selection using PVGIS weather data
 
-#### Power Generation Modules
+#### Power Generation and Storage Modules
 
 - **`pvstoragesim.py`**: Hour-by-hour solar+battery simulation with PVGIS solar profiles
-- **`microgrid_optimizer.py`**: Optimizes solar+battery sizing using 2-stage approach (feasibility screening → differential evolution)
+- **`microgrid_optimizer.py`**: Optimization loop for evaluated architectures
 - **`natgas_system_tool.py`**: Natural gas plant configuration, reliability analysis, diesel backup sizing
 - **`power_systems_estimator.py`**: Bus-centric power flow analysis (tracks conversion losses)
 
-#### Supporting Modules
+#### System Evaluation Modules
 
 - **`degradation_model.py`**: Component degradation over time
   - Grey-box battery fade model (physics + GP residuals)
   - Solar degradation (first year + annual)
   - Gas turbine degradation (capacity + efficiency)
-  - Battery thermal modeling
+  - Battery thermal modeling and parasitic thermal load derating
   
 - **`lcoe_calc.py`**: Financial analysis and LCOE calculations
   - NPV calculations with proper discounting
@@ -306,84 +306,84 @@ config.costs.solar_cost_y0 = 900  # Override solar cost
 Let's trace a 10,000 GPU datacenter in Phoenix:
 
 1. **Location Input**: (33.45°N, 112.07°W)
+   - 20,000 GPUs, 99% uptime
 
 2. **Cooling Analysis**:
    - Fetch Phoenix TMY data from PVGIS
    - Test 6 cooling systems against 8760 hours
-   - Select optimal: Case 16 (evaporative + mechanical)
-   - Annual PUE: 1.21, max PUE: 1.35
-
+   - Select optimal case (PUE = 1.12 annual average, 1.23 design maximum)
+   
 3. **Facility Load**:
-   - 10,000 GPUs ÷ 8 GPUs/node = 1,250 nodes
-   - IT power: 1,250 nodes × 10 kW = 12.5 MW avg
-   - Cooling power: 12.5 MW × (1.21 - 1) = 2.6 MW
-   - Total facility: 15.1 MW average
-   - Design load (15% contingency): 20.9 MW
+   - 20,000 GPUs ÷ 8 GPUs/node = 2500 nodes
+   - 2500 × 7.3 kW average = 18.2 MW IT load on average
+   - Add cooling load based on hourly PUE
+   - Include Design contingency (5% contingency)
+   - All architectures deliver equivalent energy services, but differ in required geenration due to differen power delivery path efficiecy
 
-4. **AC Solar+Storage Optimization**:
-   - Search space: 20-300 MW solar, 20-200 MW battery
-   - Stage 1: Find ~80 feasible designs
-   - Stage 2: Optimize to 190 MW solar, 95 MW / 380 MWh battery
-   - Year 0 uptime: 99.2%
-   - LCOE: $0.072/kWh (including degradation)
+4. **Solar+Storage Optimization**:
+   - Two-stage optimization: (1) feasibility screening, (2) cost minimization
+   - Runs full degradation analysis at 4 anchor years (0, 13, 14, 25)
+   - AC result: 158 MW solar / 174 MW battery, $441M, 2-year construction
+   - DC result: 170 MW solar / 114 MW battery, $370M, 2-year construction
+
+DC power path efficiency allows for a more solar favoring 
 
 5. **Natural Gas**:
-   - Generate 150+ configurations (different turbine types/counts)
-   - Filter: load factor, N-1, temperature derating
-   - Best: 2× GE 7F.04 combined cycle (550 MW total)
-   - EUE: 145 MWh/year → diesel backup: 12 MW (6×2MW gensets)
-   - LCOE: $0.069/kWh (at $3.50/MMBtu gas)
-
+   - Generates turbine configurations, filters by engineering constraints (minimum power, load factor, etc)
+   - Runs reliability analysis (forced outages + planned maintenance)
+   - Selects lowest LCOE option among valid designs
+   - Best: 1× GE LM6000PC (51 MW)
+   - 
 6. **Grid Baseline**:
    - Phoenix: $0.0684/kWh industrial rate (4-year avg)
    - 4-year interconnection timeline
-   - LCOE: $0.0684/kWh (pass-through)
+   - LCOE: $0.0684/kWh (pass-through simplification
 
-7. **Final Comparison** (including GPU idling costs):
-   - Natural Gas: $0.078/kWh (2.5 year construction)
-   - Grid: $0.070/kWh (4 year interconnection)
-   - AC Solar: $0.075/kWh (2 year construction)
-   - DC Solar: $0.071/kWh (2 year construction)
+7. **Final Comparison** Baseline LCOE and Total LCOE:
+   -Total LCOE includes the net present value of GPU idling costs during construction
+   - Natural Gas: $0.2038/kWh (4 year construction), $1.173/kWh total
+   - Grid: $0.0684/kWh (4 year interconnection), $1.0481/kWh total
+   - AC Solar: $0.2237/kWh (2 year construction), $0.6616/kWh total
+   - DC Solar: $0.1732/kWh (2 year construction),  $0.6118/kWh total
 
 ## Output Interpretation
 
 ### LCOE Comparison Table
 
 ```
+LCOE COMPARISON RESULTS
+================================================================================
+Location: (33.45, -112.07)
+State: Arizona
+Natural Gas Price: $6.29/MMBtu
+IT Facility Design Load: 27 MW
+Required Uptime: 99.0%
+
+SYSTEM CAPACITIES:
+AC Solar+Storage: 158 MW solar / 174 MW (695 MWh) battery - 3.9sq km
+DC Solar+Storage: 170 MW solar / 114 MW (456 MWh) battery - 3.9sq km
+Natural Gas: 51 MW - 1× GE LM6000PC SC
+
 LCOE COMPARISON TABLE:
-System               Construction Base LCOE      Idling Cost     Total LCOE
-Type                 Years        ($/kWh)        ($M NPV)        ($/kWh)
+---
+System               Construction Base LCOE       Idling Cost     Total LCOE
+Type                 Years        ($/kWh)         ($M NPV)        ($/kWh)
 --------------------------------------------------------------------------------
-AC Solar+Storage     2.0          $0.0720        $35.2           $0.0750
-DC Solar+Storage     2.0          $0.0680        $35.2           $0.0710
-Natural Gas          2.5          $0.0690        $44.0           $0.0780
-Grid                 4.0          $0.0684        $70.4           $0.0700
+AC Solar+Storage     2.00         $0.2237         $813.5          $0.6616
+DC Solar+Storage     2.00         $0.1732         $813.5          $0.6118
+Natural Gas          4.00         $0.2038         $1524.0         $1.1730
+Grid                 4.00         $0.0684         $1524.0         $1.0481
 ```
 
 **Base LCOE**: Capital + operating costs ÷ energy produced (NPV basis)
 
 **Idling Cost**: Cost of GPUs sitting idle during construction/interconnection
-- Calculated as: `GPUs × spot_price × hours × NPV_discount`
-- Crucial for comparing systems with different construction timelines
+- Calculated as: `NPV of ( GPUs × spot_price × hours )`
+
 
 **Total LCOE**: Base LCOE + idling cost amortized over energy produced
 
-### Key Metrics by System
 
-**Solar+Storage**:
-- `solar_mw`: DC capacity of solar panels
-- `battery_mw`: Power capacity of battery (charge/discharge rate)
-- `battery_mwh`: Energy capacity of battery
-- `uptime_pct`: % of hours with load fully met
-- `energy_served_pct`: % of total energy demand met
-- `battery_cycles_per_year`: Annual cycling (affects lifetime)
-
-**Natural Gas**:
-- `nameplate_capacity_mw`: Total turbine capacity
-- `ng_configuration`: "N× [turbine model] [SC/CC]"
-- `eue_total_mwh_per_year`: Expected unserved energy
-- `diesel_capacity_mw`: Backup generator capacity
-- `diesel_runtime_hours`: Expected hours on diesel per year
 
 
 
