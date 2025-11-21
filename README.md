@@ -1,10 +1,8 @@
 # Datacenter Power Systems Analysis
 
-A comprehensive Python toolkit for analyzing and optimizing power systems for large-scale AI datacenters. This codebase compares levelized cost of electricity (LCOE) across four power generation options: AC-coupled solar+storage, DC-coupled solar+storage, natural gas with diesel backup, and grid electricity.
+A Python toolkit for analyzing and optimizing power systems for large-scale AI datacenters. This codebase compares levelized cost of electricity (LCOE) across multiple power generation options: AC-coupled solar+storage, DC-coupled solar+storage, natural gas with diesel backup, and baseline industrial grid electricity.
 
 ## Overview
-
-This toolkit is designed to answer the question: **What's the most cost-effective way to power a large GPU datacenter over a 25-year lifetime?**
 
 The analysis accounts for:
 - Location-specific weather patterns and cooling efficiency (PUE)
@@ -13,13 +11,6 @@ The analysis accounts for:
 - Construction timelines and GPU idling costs
 - Reliability requirements (uptime guarantees)
 
-## Key Features
-
-- **Location-aware cooling analysis**: Uses PVGIS weather data and PUE lookup tables to model datacenter cooling efficiency
-- **Sophisticated degradation modeling**: Grey-box ML model for battery fade, empirical models for solar and gas turbines
-- **Architecture-specific power flow modeling**: Tracks conversion losses from generation to IT load
-- **Reliability analysis**: EUE (Expected Unserved Energy) calculations for natural gas systems
-- **Financial analysis**: NPV-based LCOE calculations with proper construction phasing
 
 ## Architecture
 
@@ -33,8 +24,8 @@ The analysis accounts for:
    → Generates hourly PUE profile
          ↓
 3. Facility Load Calculation (datacenter_analyzer.py + it_facil.py)
-   → IT load from GPU specs
-   → Cooling load from PUE
+   → Hourly IT load from empirical hardware benchmarking
+   → Hourly Cooling load from PUE and IT load
    → Design loads with contingency
          ↓
 4. Power System Optimization
