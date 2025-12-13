@@ -95,15 +95,15 @@ class GasTurbineConfig:
     """Gas turbine performance parameters"""
     # Part-load efficiency penalty coefficients
     # At full load: efficiency = baseline
-    # At reduced load: efficiency = baseline × (1 - penalty × (1 - load_factor))
+    # At reduced load: efficiency = baseline Ã— (1 - penalty Ã— (1 - load_factor))
     part_load_penalty_aero: float = 0.10      # Aeroderivatives: best part-load
     part_load_penalty_f_class: float = 0.15   # F-class: moderate penalty
     part_load_penalty_h_class: float = 0.20   # H-class: optimized for baseload
     
-    # Temperature derating coefficients (capacity loss per °C above 15°C ISO baseline)
-    temp_derating_per_c_aero: float = 0.010    # 1.0% per °C
-    temp_derating_per_c_f_class: float = 0.008 # 0.8% per °C
-    temp_derating_per_c_h_class: float = 0.007 # 0.7% per °C
+    # Temperature derating coefficients (capacity loss per Â°C above 15Â°C ISO baseline)
+    temp_derating_per_c_aero: float = 0.010    # 1.0% per Â°C
+    temp_derating_per_c_f_class: float = 0.008 # 0.8% per Â°C
+    temp_derating_per_c_h_class: float = 0.007 # 0.7% per Â°C
 
 
 @dataclass
@@ -136,7 +136,7 @@ class DesignConfig:
    })
    
    # Turbine lead times (months, based on conservative industry estimates) probably more like 5-7 
-   # Costa spoke to GE and they said 36 across the board
+   # Spoke to OEM and they said 36 across the board
    turbine_lead_times: Dict[str, int] = field(default_factory=lambda: {
        'aero': 36,
        'f_class': 36,
@@ -159,9 +159,9 @@ class DegradationConfig:
    
    # Battery thermal model
    battery_rt_eff: float = 0.90  # Battery efficiency for thermal calculations
-   battery_mth_per_mwh: float = 2.3  # Thermal mass per MWh (°C·h/kW)
-   battery_t_min: float =   23# Minimum battery temperature in climate control (°C)
-   battery_t_max: float = 27  # Maximum battery temperature in climate contorl (°C)
+   battery_mth_per_mwh: float = 2.3  # Thermal mass per MWh (Â°CÂ·h/kW)
+   battery_t_min: float =   23# Minimum battery temperature in climate control (Â°C)
+   battery_t_max: float = 27  # Maximum battery temperature in climate contorl (Â°C)
    
    # Gas turbine degradation (capacity%, efficiency% per year)
    gas_degradation_rates: Dict[str, tuple] = field(default_factory=lambda: {
