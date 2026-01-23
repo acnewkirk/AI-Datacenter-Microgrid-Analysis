@@ -303,7 +303,7 @@ config.costs.solar_cost_y0 = 900  # Override solar cost
 
 ## Data Flow Example
 
-Let's trace a 10,000 GPU datacenter in Phoenix:
+Let's trace a 20,000 GPU datacenter in Phoenix:
 
 1. **Location Input**: (33.45°N, 112.07°W)
    - 20,000 GPUs, 99% uptime
