@@ -159,7 +159,7 @@ def simulate_battery_operation(
     initial_soc: float = 50,
 ) -> Dict[str, np.ndarray]:
     """
-    Vectorized simulation of battery operation for one year, performed at the main bus.
+    Hourly simulation of battery operation for one year, performed at the main bus.
     """
     n_hours = len(solar_dc_mw)
     
