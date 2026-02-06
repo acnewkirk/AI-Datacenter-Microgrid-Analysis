@@ -1,4 +1,4 @@
-﻿
+
 """
 PUE Selection Tool for Data Center Cooling Systems
 Selects optimal cooling system based on annual average PUE for a given location
@@ -7,7 +7,7 @@ Selects optimal cooling system based on annual average PUE for a given location
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 import logging
 from pvlib import iotools
 import requests
@@ -75,104 +75,58 @@ def load_pue_lookup_table(case_number: int, lookup_dir: str = "output_tables") -
     return df[required_cols]
 
 
-def round_weather_conditions(temperature: float, humidity: float) -> Tuple[float, float]:
-    """
-    Round weather conditions to match lookup table resolution.
-    
-    Args:
-        temperature: Temperature in Celsius
-        humidity: Relative humidity in %
-        
-    Returns:
-        Tuple of (rounded_temperature, rounded_humidity)
-    """
-    # Round temperature to nearest 0.5C
-    rounded_temp = round(temperature * 2) / 2
-    
-    # Round humidity to nearest 1%
-    rounded_humidity = round(humidity)
-    
-    return rounded_temp, rounded_humidity
-
-
-def lookup_pue_value(
-    lookup_df: pd.DataFrame, 
-    temperature: float, 
-    humidity: float
-) -> Optional[float]:
-    """
-    Look up PUE value for given weather conditions with nearest neighbor fallback.
-    
-    Args:
-        lookup_df: PUE lookup table DataFrame
-        temperature: Temperature in Celsius
-        humidity: Relative humidity in %
-        
-    Returns:
-        PUE value (uses interpolation if exact match not found)
-    """
-    # Round to lookup table resolution
-    temp_rounded, humidity_rounded = round_weather_conditions(temperature, humidity)
-    
-    # First try exact match
-    mask = (lookup_df['T_oa'] == temp_rounded) & (lookup_df['RH_oa'] == humidity_rounded)
-    matching_rows = lookup_df[mask]
-    
-    if len(matching_rows) > 0:
-        if len(matching_rows) > 1:
-            logger.warning(f"Multiple PUE values found for T={temp_rounded}C, RH={humidity_rounded}%, using first")
-        return matching_rows.iloc[0]['pue']
-    
-    # No exact match found - use nearest neighbor interpolation
-    logger.debug(f"No exact match for T={temp_rounded}C, RH={humidity_rounded}% - using nearest neighbor")
-    
-    # Calculate Euclidean distance to all points
-    # Weight temperature more heavily than humidity (temperature typically more critical for cooling)
-    temp_weight = 1.0
-    humidity_weight = 0.1
-    
-    distances = np.sqrt(
-        (temp_weight * (lookup_df['T_oa'] - temp_rounded))**2 + 
-        (humidity_weight * (lookup_df['RH_oa'] - humidity_rounded))**2
-    )
-    
-    # Find nearest neighbor
-    nearest_idx = distances.idxmin()
-    nearest_pue = lookup_df.loc[nearest_idx, 'pue']
-    
-    logger.debug(f"Using nearest neighbor: T={lookup_df.loc[nearest_idx, 'T_oa']}C, "
-                f"RH={lookup_df.loc[nearest_idx, 'RH_oa']}%, PUE={nearest_pue:.3f}")
-    
-    return nearest_pue
-
-
 def calculate_annual_pue(
     weather_df: pd.DataFrame,
     lookup_df: pd.DataFrame
 ) -> Dict[str, float]:
     """
     Calculate annual average PUE and statistics for a cooling system.
-    
+
+    Vectorized: rounds weather to lookup resolution, merges on (T_oa, RH_oa),
+    then uses KDTree nearest-neighbor for any unmatched hours.
+
     Args:
         weather_df: Hourly weather data
         lookup_df: PUE lookup table
-        
+
     Returns:
-        Dictionary with annual_pue, max_pue, valid_hours
+        Dictionary with annual_pue, max_pue, valid_hours, hourly_pue
     """
-    hourly_pue = []
-    valid_hours = 0
-    
-    for _, row in weather_df.iterrows():
-        pue = lookup_pue_value(lookup_df, row['temperature_c'], row['humidity_pct'])
-        
-        if pue is not None and pue > 0:  # Filter out invalid PUE values
-            hourly_pue.append(pue)
-            valid_hours += 1
-        else:
-            # Use a high penalty PUE for missing/invalid values
-            hourly_pue.append(10.0)  # Penalty value
-    
+    from scipy.spatial import KDTree
+
+    # Vectorized rounding to lookup table resolution
+    rounded_temp = np.round(weather_df['temperature_c'].values * 2) / 2  # nearest 0.5°C
+    rounded_humidity = np.round(weather_df['humidity_pct'].values)        # nearest 1%
+
+    # Build a rounded weather frame and merge onto lookup table
+    weather_rounded = pd.DataFrame({'T_oa': rounded_temp, 'RH_oa': rounded_humidity})
+    merged = weather_rounded.merge(lookup_df, on=['T_oa', 'RH_oa'], how='left')
+    hourly_pue = merged['pue'].values.copy()
+
+    # Fill unmatched hours via KDTree nearest-neighbor (same weighting as old code)
+    missing_mask = np.isnan(hourly_pue)
+    if missing_mask.any():
+        temp_weight = 1.0
+        humidity_weight = 0.1
+        lookup_coords = np.column_stack([
+            lookup_df['T_oa'].values * temp_weight,
+            lookup_df['RH_oa'].values * humidity_weight
+        ])
+        tree = KDTree(lookup_coords)
+
+        query_coords = np.column_stack([
+            rounded_temp[missing_mask] * temp_weight,
+            rounded_humidity[missing_mask] * humidity_weight
+        ])
+        _, indices = tree.query(query_coords)
+        hourly_pue[missing_mask] = lookup_df['pue'].values[indices]
+
+    # Replace invalid PUE values (≤0) with penalty
+    invalid_mask = hourly_pue <= 0
+    hourly_pue[invalid_mask] = 10.0
+
+    valid_hours = int(np.sum(~invalid_mask))
+
     if valid_hours == 0:
         logger.error("No valid PUE values found for entire year")
         return {
@@ -180,12 +134,10 @@ def calculate_annual_pue(
             'max_pue': float('inf'),
             'valid_hours': 0
         }
-    
-    hourly_pue = np.array(hourly_pue)
-    
+
     return {
         'annual_pue': np.mean(hourly_pue),
-        'max_pue': np.max(hourly_pue[hourly_pue < 10.0]),  # Max of valid values only
+        'max_pue': np.max(hourly_pue[~invalid_mask]),  # Max of valid values only
         'valid_hours': valid_hours,
         'hourly_pue': hourly_pue  # Store for future integration
     }
@@ -286,32 +238,3 @@ def select_optimal_cooling_system(
     
     return results
 
-
-# Example usage and testing
-if __name__ == "__main__":
-    # Test with a specific location (e.g., Phoenix, AZ)
-    test_latitude = 33.4484
-    test_longitude = -112.0740
-    
-    try:
-        results = select_optimal_cooling_system(
-            latitude=test_latitude,
-            longitude=test_longitude,
-            case_numbers=[1,2, 14,15, 16, 17],
-            lookup_dir="output_tables"
-        )
-        
-        print("\n=== PUE Selection Results ===")
-        print(f"Location: ({test_latitude}, {test_longitude})")
-        print(f"Weather stats: {results['weather_stats']}")
-        print(f"\nOptimal cooling system: Case {results['optimal_case']}")
-        print(f"Annual average PUE: {results['optimal_annual_pue']:.3f}")
-        print(f"Maximum PUE: {results['optimal_max_pue']:.3f}")
-        print("\nAll cases evaluated:")
-        for case, stats in results['all_cases'].items():
-            print(f"  Case {case}: Annual PUE = {stats['annual_pue']:.3f}, "
-                  f"Max PUE = {stats['max_pue']:.3f}")
-            
-    except Exception as e:
-        logger.error(f"Error in PUE selection: {e}")
-        raise
