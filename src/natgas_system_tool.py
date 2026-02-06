@@ -883,67 +883,8 @@ class NGPowerPlantCalculator:
                'diesel_annual_om': optimal_config.diesel_design.annual_fixed_om,
            })
    
-       result['delivered_to_it_mw'] = self.facility_design_mw
        result['required_generation_mw'] = self.required_generation_mw
    
        return result
 
-# ───────────────────────────────────────────────────────────────
-# MAIN EXECUTION
-# ───────────────────────────────────────────────────────────────
 
-# Add this as the main function at the bottom of natgas_system_tool.py
-
-if __name__ == "__main__":
-    """Verify the EXACT demand values being used for EUE calculations"""
-    
-    print("\n" + "="*70)
-    print("TEST: Verify Exact Demand Values Used in EUE")
-    print("="*70)
-    
-    from config import load_config
-    
-    # Create a simple plant config
-    plant = PlantConfiguration(
-        turbine_model="Test",
-        turbine_class="f_class",
-        n_units=2,
-        unit_capacity_mw=200,
-        total_capacity_mw=400,
-        cycle_type="SC",
-        efficiency=0.40,
-        availability=0.97,
-        forced_availability=0.97,
-        capex_per_kw=1000,
-        fixed_om_per_kw_yr=25,
-        var_om_per_mwh=5
-    )
-    
-    # Test with known values
-    peak_mw = 300.0
-    avg_mw = 225.0  # 75% of peak
-    
-    cfg = load_config()
-    
-    # Direct EUE calculations
-    eue_at_peak = calculate_eue_forced(plant, peak_mw, cfg)
-    eue_at_avg = calculate_eue_forced(plant, avg_mw, cfg)
-    
-    print(f"\nDirect EUE calculation test:")
-    print(f"  Plant: {plant.n_units}×{plant.unit_capacity_mw} MW = {plant.total_capacity_mw} MW")
-    print(f"  Peak demand: {peak_mw} MW → EUE = {eue_at_peak:.0f} MWh/yr")
-    print(f"  Avg demand:  {avg_mw} MW → EUE = {eue_at_avg:.0f} MWh/yr")
-    print(f"  Reduction: {(1-eue_at_avg/eue_at_peak)*100:.1f}%")
-    
-    # Now test through generate_plant_configurations
-    annual_mwh = avg_mw * 8760
-    
-    print(f"\nThrough generate_plant_configurations:")
-    print(f"  If annual_energy_mwh = {annual_mwh:.0f}")
-    print(f"  Then avg_demand_mw should = {annual_mwh/8760:.0f} MW")
-    
-    # The key question: Does generate_plant_configurations use this correctly?
-    # We can't easily test this without modifying the function to log/return the value
-    
-    print("\n⚠️  To fully verify, we'd need to add logging inside")
-    print("    generate_plant_configurations to confirm avg_demand_mw value")
