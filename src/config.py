@@ -47,9 +47,9 @@ class CostConfig:
    
    diesel_genset_cost_per_kw: float = 800
    diesel_tank_cost_per_gallon: float = 3.00  # $/gallon for diesel storage tank
-   diesel_cost = 3.40 # $/gallon, USA avg diesel price as of july 2025, adjusted to 2022 dollars. 
-   diesel_eff = 250 # gallons per MWh, average diesel generator efficiency NREL backup gen doc
-   diesel_var_om_per_mwh   = 12.0    # $/MWh non-fuel
+   diesel_cost: float = 3.40 # $/gallon, USA avg diesel price as of july 2025, adjusted to 2022 dollars.
+   diesel_eff: float = 250 # gallons per MWh, average diesel generator efficiency NREL backup gen doc
+   diesel_var_om_per_mwh: float = 12.0    # $/MWh non-fuel
    diesel_test_hours_per_year: float = 24.0  # default annual testing hours per diesel unit. Based on 2 hours of monthly testing per gen
 
 
@@ -95,15 +95,15 @@ class GasTurbineConfig:
     """Gas turbine performance parameters"""
     # Part-load efficiency penalty coefficients
     # At full load: efficiency = baseline
-    # At reduced load: efficiency = baseline × (1 - penalty × (1 - load_factor))
+    # At reduced load: efficiency = baseline � (1 - penalty � (1 - load_factor))
     part_load_penalty_aero: float = 0.10      # Aeroderivatives: best part-load
     part_load_penalty_f_class: float = 0.15   # F-class: moderate penalty
     part_load_penalty_h_class: float = 0.20   # H-class: optimized for baseload
     
-    # Temperature derating coefficients (capacity loss per °C above 15°C ISO baseline)
-    temp_derating_per_c_aero: float = 0.010    # 1.0% per °C
-    temp_derating_per_c_f_class: float = 0.008 # 0.8% per °C
-    temp_derating_per_c_h_class: float = 0.007 # 0.7% per °C
+    # Temperature derating coefficients (capacity loss per �C above 15�C ISO baseline)
+    temp_derating_per_c_aero: float = 0.010    # 1.0% per �C
+    temp_derating_per_c_f_class: float = 0.008 # 0.8% per �C
+    temp_derating_per_c_h_class: float = 0.007 # 0.7% per �C
 
 
 @dataclass
@@ -136,7 +136,7 @@ class DesignConfig:
    })
    
    # Turbine lead times (months, based on conservative industry estimates) probably more like 5-7 
-   # Spoke to OEM and they said 36 across the board
+   # Costa spoke to GE and they said 36 across the board
    turbine_lead_times: Dict[str, int] = field(default_factory=lambda: {
        'aero': 36,
        'f_class': 36,
@@ -159,9 +159,9 @@ class DegradationConfig:
    
    # Battery thermal model
    battery_rt_eff: float = 0.90  # Battery efficiency for thermal calculations
-   battery_mth_per_mwh: float = 2.3  # Thermal mass per MWh (°C·h/kW)
-   battery_t_min: float =   23# Minimum battery temperature in climate control (°C)
-   battery_t_max: float = 27  # Maximum battery temperature in climate contorl (°C)
+   battery_mth_per_mwh: float = 2.3  # Thermal mass per MWh (�C�h/kW)
+   battery_t_min: float =   23# Minimum battery temperature in climate control (�C)
+   battery_t_max: float = 27  # Maximum battery temperature in climate contorl (�C)
    
    # Gas turbine degradation (capacity%, efficiency% per year)
    gas_degradation_rates: Dict[str, tuple] = field(default_factory=lambda: {
@@ -204,7 +204,8 @@ def load_config(path: Optional[str] = None) -> Config:
        it_load=ITLoadConfig(**data.get('it_load', {})),
        design=DesignConfig(**data.get('design', {})),
        degradation=DegradationConfig(**data.get('degradation', {})),
-       financial=FinancialConfig(**data.get('financial', {}))
+       financial=FinancialConfig(**data.get('financial', {})),
+       gas_turbine=GasTurbineConfig(**data.get('gas_turbine', {}))
    )
 
 
@@ -216,7 +217,8 @@ def save_config(config: Config, path: str):
        'it_load': config.it_load.__dict__,
        'design': config.design.__dict__,
        'degradation': config.degradation.__dict__,
-       'financial': config.financial.__dict__
+       'financial': config.financial.__dict__,
+       'gas_turbine': config.gas_turbine.__dict__
    }
    
    with open(path, 'w') as f:
