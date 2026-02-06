@@ -3,9 +3,6 @@ Microgrid System Optimizer - Refactored to use config.py
 Finds optimal solar + battery configurations using CapEx optimization (proven LCOE proxy).
 Handles degradation analysis and provides clean interface to other modules.
 """
-
-from re import S
-from tkinter import ARC
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
