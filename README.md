@@ -23,7 +23,7 @@ Location + GPUs + Required Uptime
 >  Newkirk, Alex, Daniel Gerber, Erica Fuchs, et al. 2025. "Technoeconomic Analysis of Microgrids for AI Data Centers in the Continental United States." Preprint, Research
          +Square, December 22. [https://doi.org/10.21203/rs.3.rs-8272920/v1](https://doi.org/10.21203/rs.3.rs-8272920/v1)
 
-Methodological details, validation, and results are in the paper.
+Methodological details, validation, and results are in the paper. When referencing this codebase please cite the associated manuscript. 
 
 ## Requirements & Setup
 
