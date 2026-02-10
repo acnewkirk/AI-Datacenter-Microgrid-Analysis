@@ -6,7 +6,7 @@ Comparing levelized cost of electricity (LCOE) for datacenter power supply optio
 
 AI Microgrids takes a GPU count, geographic coordinates, and required uptime percentage, then models four power supply architectures (AC-coupled solar+storage, DC-coupled solar+storage, natural gas with diesel backup, and utility grid) and returns an LCOE comparison over a 27-year project life.
 
-The model captures location-specific cooling loads and PUE via PVGIS weather data, hour-by-hour solar+battery dispatch with rainflow cycle counting, grey-box battery degradation (Arrhenius scaffold + Gaussian process residuals), gas turbine reliability via binomial expected unserved energy (EUE), and bus-centric power flow accounting through each architecture's conversion stages. All costs are in 2022 USD; defaults are sourced from NREL ATB, EIA, and PNNL.
+The model captures location-specific cooling loads and PUE via PVGIS weather data, hour-by-hour solar+battery dispatch with rainflow cycle counting, grey-box battery degradation (Arrhenius scaffold + Gaussian process residuals), gas turbine reliability via binomial expected unserved energy (EUE), and bus-centric power flow accounting through each architecture's conversion stages. The model outputs both a standard LCOE and a speed-adjusted LCOE that adds the opportunity cost of GPU-hours to compare systems of different construction times. All costs are in 2022 USD; with parameter values in config and parameter sourcing available in the manuscript.
 
 When you run an analysis, the tool follows this pipeline:
 
@@ -70,7 +70,7 @@ comparison = compare_datacenter_power_systems(
 )
 ```
 
-The returned object contains per-system LCOE, capacities, and construction timelines. See `analysis_wrapper.py` for a formatted output example.
+The returned object contains per-system LCOE and speed-premium LCOE, capacities, and other relevant summary results. See `analysis_wrapper.py` for a formatted output example.
 
 ## Project Structure
 
