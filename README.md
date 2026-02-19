@@ -150,7 +150,7 @@ save_config(config, "my_config.json")  # export to JSON, edit as needed
 config = load_config("my_config.json") # reload with overrides
 ```
 
-Key configurable categories: capital costs, O&M costs, power conversion efficiencies, IT load specs, battery/solar/turbine degradation rates, financial parameters (discount rate, project lifetime), and gas turbine performance curves.
+Key configurable categories: capital costs, O&M costs, power conversion efficiencies, IT load specs, solar/turbine degradation rates, financial parameters (discount rate, project lifetime), and gas turbine performance curves.
 
 ## License
 
