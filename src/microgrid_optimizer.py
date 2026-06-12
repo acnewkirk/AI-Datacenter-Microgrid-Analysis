@@ -3,6 +3,7 @@ Microgrid System Optimizer - Refactored to use config.py
 Finds optimal solar + battery configurations using CapEx optimization (proven LCOE proxy).
 Handles degradation analysis and provides clean interface to other modules.
 """
+
 import numpy as np
 import pandas as pd
 from dataclasses import dataclass
@@ -30,7 +31,7 @@ logger = logging.getLogger(__name__)
 class SystemCosts:
    """Cost parameters for system components."""
    solar_cost_per_kw: float  # $/kW DC for modules
-   battery_cost_per_kw: float  # $/kWh for ESS
+   battery_cost_per_kw: float  # $/kW for ESS (4-hour system, power basis)
    solar_bos_cost_per_kw: float  # $/kW for solar BOS
    battery_bos_cost_per_kw: float  # $/kW for battery BOS
    battery_hours: float = 4.0  # Duration of battery storage
@@ -93,20 +94,31 @@ class MicrogridOptimizer:
        required_uptime_pct: float,
        costs: SystemCosts,
        architecture: str = "ac_coupled",
+       topology: str = "mv_coupled",
        efficiency_params: Optional[Config] = None,
-       verbose: bool = False
+       verbose: bool = False,
+       seed: Optional[int] = None,
    ):
        """
        Initialize optimizer.
-       
+
        Args:
            latitude, longitude: Location coordinates
            facility_load: FacilityLoad object with datacenter requirements
            required_uptime_pct: Minimum uptime requirement (%)
            costs: SystemCosts object with component pricing
-           architecture: "ac_coupled" or "dc_coupled"
+           architecture: "ac_coupled" or "dc_coupled" — data-hall
+                 distribution bus type
+           topology: PV collection network. "mv_coupled" (default) models a
+                 centralized PV field with an MV gathering spine to the data
+                 hall. "lv_direct" models one modular pod (solar + battery +
+                 IT on a shared LV bus); a single LV bus is practical to
+                 roughly ~2 MW, and modular facilities tile pods, so
+                 lv_direct per-MWh results scale linearly with facility size.
            efficiency_params: Config object with efficiency parameters
-          
+           seed: If set, makes optimize() deterministic — used to seed both
+                 the Stage-1 Latin-hypercube sampler and Stage-2 differential
+                 evolution. Leave None for legacy non-deterministic behavior.
        """
        self.latitude = latitude
        self.longitude = longitude
@@ -114,9 +126,11 @@ class MicrogridOptimizer:
        self.required_uptime_pct = required_uptime_pct
        self.costs = costs
        self.architecture = architecture
+       self.topology = topology
        self.config = efficiency_params or load_config()
-       
-       
+       self.verbose = verbose
+       self.seed = seed
+
        # Derived parameters
        self.facility_load_mw = facility_load.facility_load_design_mw
        self.hourly_pue = getattr(facility_load, "hourly_pue", None)
@@ -125,10 +139,12 @@ class MicrogridOptimizer:
        self._simulation_cache: Dict[str, Dict] = {}
        self.function_evaluations = 0
        
-       # Get solar profile once and cache (with facility_load for TMY caching)
+       # Get solar profile once and cache (with facility_load for TMY caching).
+       # The profile is raw/architecture-independent; inverter clipping is
+       # applied per-call in evaluate_system.
        logger.info(f"Fetching solar data for ({latitude:.3f}, {longitude:.3f})")
        self.solar_profile = get_solar_generation(
-           latitude, longitude, facility_load=facility_load, architecture=architecture
+           latitude, longitude, facility_load=facility_load
        )
        
        # Calculate optimization bounds
@@ -158,7 +174,7 @@ class MicrogridOptimizer:
                sim_year_0 = evaluate_system(
                    self.latitude, self.longitude, solar_mw, battery_mw,
                    self.facility_load, hourly_pue=self.hourly_pue,
-                   architecture=self.architecture, efficiency_params=self.config,
+                   architecture=self.architecture, topology=self.topology, efficiency_params=self.config,
                    solar_profile=self.solar_profile, return_hourly=False
                )
                if sim_year_0.uptime_pct < self.required_uptime_pct:
@@ -172,7 +188,7 @@ class MicrogridOptimizer:
                sim_year_0 = evaluate_system(
                    self.latitude, self.longitude, solar_mw, battery_mw,
                    self.facility_load, hourly_pue=self.hourly_pue,
-                   architecture=self.architecture, efficiency_params=self.config,
+                   architecture=self.architecture, topology=self.topology, efficiency_params=self.config,
                    solar_profile=self.solar_profile, return_hourly=True
                )
            
@@ -190,7 +206,7 @@ class MicrogridOptimizer:
                    self.latitude, self.longitude, 
                    solar_mw * solar_factor_13, battery_mw * battery_factor_13,
                    self.facility_load, hourly_pue=self.hourly_pue,
-                   architecture=self.architecture, efficiency_params=self.config,
+                   architecture=self.architecture, topology=self.topology, efficiency_params=self.config,
                    solar_profile=self.solar_profile, return_hourly=True
                )
            
@@ -204,20 +220,26 @@ class MicrogridOptimizer:
                    self.latitude, self.longitude,
                    solar_mw * solar_factor_14, battery_mw,
                    self.facility_load, hourly_pue=self.hourly_pue,
-                   architecture=self.architecture, efficiency_params=self.config,
+                   architecture=self.architecture, topology=self.topology, efficiency_params=self.config,
                    solar_profile=self.solar_profile, return_hourly=True
                )
            
                if sim_year_14.uptime_pct < self.required_uptime_pct:
                    return None
            
-               # Year 25: End of life
+               # Year 25: End of life. The replacement battery is evaluated at
+               # age 12 with the original Year-0 stressors (efc0 unscaled) — a
+               # deliberate fixed-replacement-schedule simplification so both
+               # anchor batteries age identically. Strict age at operational
+               # year 24 would be 11; the difference is conservative and small
+               # relative to the inter-anchor linear interpolation.
                solar_factor_25 = get_solar_capacity_factor(24)
                replacement_stats = {
-                    'mean_soc0_pct': year_0_stats['mean_soc0_pct'], 
-                    'efc0': year_0_stats['efc0'],  # <- Keep original EFC0
+                    'mean_soc0_pct': year_0_stats['mean_soc0_pct'],
+                    'efc0': year_0_stats['efc0'],
                     'mean_soc': year_0_stats.get('mean_soc', year_0_stats['mean_soc0_pct'] / 100),
-                    'soc_p90': year_0_stats.get('soc_p90', 0.75)  # Add missing features
+                    'soc_p90': year_0_stats.get('soc_p90', 0.75),
+                    'mean_temperature': year_0_stats.get('mean_temperature', 25.0),
                 }
 
                battery_factor_25 = get_battery_capacity_at_year(12, replacement_stats)
@@ -226,7 +248,7 @@ class MicrogridOptimizer:
                    self.latitude, self.longitude,
                    solar_mw * solar_factor_25, battery_mw * battery_factor_25,
                    self.facility_load, hourly_pue=self.hourly_pue,
-                   architecture=self.architecture, efficiency_params=self.config,
+                   architecture=self.architecture, topology=self.topology, efficiency_params=self.config,
                    solar_profile=self.solar_profile, return_hourly=True
                )
            
@@ -285,6 +307,8 @@ class MicrogridOptimizer:
     logger.info(f"Starting 2-stage optimization for {self.architecture}")
     self.function_evaluations = 0
 
+    opt_rng = np.random.default_rng(self.seed)
+
     # ──────────────────────────────────────────────────────────────
     #  1. Stage-1 — Feasibility screening
     # ──────────────────────────────────────────────────────────────
@@ -296,11 +320,10 @@ class MicrogridOptimizer:
     n_screen = max(80, int(40 + 20 * np.log10(box_area)))
 
     def latin_samples(n: int) -> list[tuple[float, float]]:
-        rng = np.random.default_rng()
-        u1 = rng.random(n)
-        u2 = rng.random(n)
-        rng.shuffle(u1)
-        rng.shuffle(u2)
+        u1 = opt_rng.random(n)
+        u2 = opt_rng.random(n)
+        opt_rng.shuffle(u1)
+        opt_rng.shuffle(u2)
 
         log_smin, log_smax = np.log10([solar_min, solar_max])
         log_bmin, log_bmax = np.log10([batt_min, batt_max])
@@ -392,7 +415,8 @@ class MicrogridOptimizer:
                     stage2_bounds,
                     maxiter=25,
                     popsize=10,
-                    disp=False
+                    disp=False,
+                    seed=opt_rng,
                 )
             
             # Check if DE result is valid
@@ -518,7 +542,8 @@ class PowerSystemOptimizer:
        self.costs = costs
        self.config = efficiency_params or load_config()
    
-   def optimize_solar_storage(self, architecture: str = "ac_coupled") -> OptimizationResult:
+   def optimize_solar_storage(self, architecture: str = "ac_coupled",
+                              topology: str = "mv_coupled") -> OptimizationResult:
        """Optimize solar+storage using CapEx minimization."""
        optimizer = MicrogridOptimizer(
            latitude=self.latitude,
@@ -527,6 +552,7 @@ class PowerSystemOptimizer:
            required_uptime_pct=self.required_uptime_pct,
            costs=self.costs,
            architecture=architecture,
+           topology=topology,
            efficiency_params=self.config
        )
        return optimizer.optimize()

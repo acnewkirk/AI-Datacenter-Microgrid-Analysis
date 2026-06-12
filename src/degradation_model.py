@@ -233,11 +233,13 @@ def calculate_thermal_profile(
    
    # Get hourly PUE for cooling efficiency
    pue_hourly = np.asarray(facility_load.hourly_pue)
-   
+   charge_arr = np.abs(hd['battery_charge_mw'].to_numpy())
+   discharge_arr = np.abs(hd['battery_discharge_mw'].to_numpy())
+
    for h in range(1, n_hours):
        # Heat generation from battery charge/discharge
-       charge_mw = abs(hd['battery_charge_mw'].iloc[h])
-       discharge_mw = abs(hd['battery_discharge_mw'].iloc[h])
+       charge_mw = charge_arr[h]
+       discharge_mw = discharge_arr[h]
        heat_generation_kw = (charge_mw + discharge_mw) * one_way_loss * 1000
        
        # Predicted temperature without thermal management
@@ -438,44 +440,6 @@ def get_battery_capacity_at_year(
         capacity *= (1 - fade_pct / 100.0)
 
     return capacity
-
-def get_battery_capacity_with_replacement(
-    operational_year: int,
-    year_0_stats: Dict,
-    replacement_year: int = 13,
-    config: Optional[Config] = None
-) -> float:
-    """
-    Get battery capacity accounting for mid-life replacement.
-    
-    Args:
-        operational_year: Years since start of operations
-        year_0_stats: Dictionary from extract_battery_year_0_stats
-        replacement_year: Year when battery is replaced (default 13)
-        config: Configuration object
-    
-    Returns:
-        Battery capacity factor (0-1)
-    """
-    if operational_year < replacement_year:
-        # Before replacement: use original battery degradation
-        return get_battery_capacity_at_year(operational_year, year_0_stats, config)
-    else:
-        # After replacement: fresh battery with adjusted cycling
-        # Assume cycling reduces proportionally with solar degradation
-        solar_factor = get_solar_capacity_factor(replacement_year + 1, config)
-        
-        # Create adjusted stats for replacement battery
-        replacement_stats = {
-            'mean_soc': year_0_stats.get('mean_soc', 0.65),
-            'soc_p90': year_0_stats.get('soc_p90', 0.75),
-            'efc0': year_0_stats.get('efc0', 250.0) * solar_factor,
-            'mean_temperature': year_0_stats.get('mean_temperature', 25.0)
-        }
-        
-        # Years since replacement
-        years_since_replacement = operational_year - replacement_year
-        return get_battery_capacity_at_year(years_since_replacement, replacement_stats, config)
 
 # ═══════════════════════════════════════════════════════════════════════════
 # GAS TURBINE DEGRADATION

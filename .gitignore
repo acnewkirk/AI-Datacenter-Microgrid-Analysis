@@ -379,3 +379,6 @@ __pycache__/
 # IDE
 .vscode/
 .idea/
+
+# NSRDB weather cache (user-fetched at runtime)
+output_tables/nsrdb_cache/

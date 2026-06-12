@@ -26,9 +26,11 @@ class CostConfig:
    bess_cost_y15: float = 508.1235  # $/kW
    bos_cost_y15: float = 644.4656  # $/kW combined
    
-   # O&M costs The NREL ATB value includes the cost of battery replacement in y15 so we decompose it using the PNNL value for the LFP and Ramasamy et al. value for the PV
-   solar_fixed_om: float = 16.58  # $/kW DC-yr includes the new inverters but since they don't decompse cost don't want to try to break it out and it shouldn't matter 
-   storage_fixed_om: float = 4.37 # $/kW-yr for 4 hr lfp battery storage (PNNL 2024)
+   # O&M costs. NREL ATB bundles the year-15 battery replacement into its O&M
+   # figure, so we decompose: LFP storage O&M from PNNL 2024, PV O&M from
+   # Ramasamy et al.
+   solar_fixed_om: float = 16.58  # $/kW DC-yr; includes scheduled inverter replacement (not separable in source)
+   storage_fixed_om: float = 4.37 # $/kW-yr for 4 hr LFP battery storage (PNNL 2024)
    # Land costs
    land_cost_per_sq_km: float = 150000  # $/km^2 (Year 0)
    
@@ -58,7 +60,9 @@ class CostConfig:
 class EfficiencyConfig:
    """Power conversion and system efficiency parameters"""
    # Power conversion stages
-   dc_dc: float = 0.97  # DC-DC conversion efficiency
+   # NB: the former generic `dc_dc` stage (0.97) was folded into
+   # `battery_converter` (0.98) — the battery discharge path was its only
+   # consumer.
    ac_dc: float = 0.96  # AC-DC rectification efficiency
    dc_ac: float = 0.96  # DC-AC inversion efficiency
    transformer: float = 0.98
@@ -71,7 +75,7 @@ class EfficiencyConfig:
    
    # Cooling-specific efficiencies
    vfd_efficiency: float = 0.97  # Variable Frequency Drive for AC cooling motors
-   dc_motor_controller_efficiency: float = 1  # Electronic speed controller for DC motors
+   dc_motor_controller_efficiency: float = 0.98  # Electronic speed controller (ESC) for DC cooling motors
    
    # Distribution
    cable_efficiency: float = 0.99  # Distribution losses
@@ -85,25 +89,62 @@ class EfficiencyConfig:
    battery_converter: float = 0.98  # Battery DC-DC converter efficiency
    
    
-   # Natural gas efficiencies 
+   # Natural gas efficiencies
    steam_cycle_efficiency: float = 0.34
    lhv_to_hhv: float = 1.108
    hrsg_effectiveness: float = 0.80
+
+   # MVDC DC/DC converter, pure LV-DC <-> MV-DC stage (no AC legs). 0.98 is
+   # conservative vs measured SiC DAB hardware: 97.9% at 100 kW full load /
+   # 98.7% peak (academic SiC prototypes), ~99% (Tian et al. 2020), 99.6%
+   # design target at 200 kW (ORNL OSTI 2229095); full-SST figures (e.g.
+   # Kopacz et al. 2024: 98.1% at 1 MW) include AC stages and are lower
+   # bounds for the DC-DC stage alone. Used by MV-coupled DC topology only.
+   mvdc_converter: float = 0.98
 
 @dataclass
 class GasTurbineConfig:
     """Gas turbine performance parameters"""
     # Part-load efficiency penalty coefficients
     # At full load: efficiency = baseline
-    # At reduced load: efficiency = baseline � (1 - penalty � (1 - load_factor))
+    # At reduced load: efficiency = baseline × (1 - penalty × (1 - load_factor))
     part_load_penalty_aero: float = 0.10      # Aeroderivatives: best part-load
     part_load_penalty_f_class: float = 0.15   # F-class: moderate penalty
     part_load_penalty_h_class: float = 0.20   # H-class: optimized for baseload
-    
-    # Temperature derating coefficients (capacity loss per �C above 15�C ISO baseline)
-    temp_derating_per_c_aero: float = 0.010    # 1.0% per �C
-    temp_derating_per_c_f_class: float = 0.008 # 0.8% per �C
-    temp_derating_per_c_h_class: float = 0.007 # 0.7% per �C
+
+    # Temperature derating coefficients (capacity loss per °C above 15°C ISO baseline)
+    temp_derating_per_c_aero: float = 0.010    # 1.0% per °C
+    temp_derating_per_c_f_class: float = 0.008 # 0.8% per °C
+    temp_derating_per_c_h_class: float = 0.007 # 0.7% per °C
+
+    # Plant interior auxiliary load as fraction of gross generator output.
+    # Covers GT/ST equipment auxiliaries, BOP pumps, fuel gas compression
+    # (PR-dependent), cooling system parasitics, and indirect loads
+    # (instrument/service air, plant HVAC, etc.).
+    #
+    # Does NOT include the generator step-up transformer — that loss is
+    # modeled explicitly in power_systems_estimator.py as part of the
+    # source-to-bus path. Including step-up here would double-count.
+    #
+    # Values anchored on EIA AEO Capital Cost Estimates (gross-to-net
+    # derate, with the ~0.5% step-up transformer stripped) and Gülen 2011
+    # Table 1 (plant interior aux for ISO rating, ACC cooling assumption).
+    # Cooling system: ACC assumed (water-stressed siting consistent with
+    # data center colocation context).
+    #
+    # SC values for high-PR machines (aero, H-class) reflect fuel-gas
+    # compression at PR>20 per Gülen Eq. 2. F-class SC operates below the
+    # fuel compression threshold (PR 16-18).
+    #
+    # CC values include steam-side BOP (HRSG feed pumps, condensate pumps,
+    # ACC fans) — adds ~0.5 pp over the corresponding SC value.
+    aux_load_fraction: Dict[str, float] = field(default_factory=lambda: {
+        'aero_sc':     0.020,
+        'f_class_sc':  0.015,
+        'f_class_cc':  0.023,
+        'h_class_sc':  0.020,
+        'h_class_cc':  0.025,
+    })
 
 
 @dataclass
@@ -127,7 +168,7 @@ class DesignConfig:
    # Construction timelines
    solar_construction_years: float = 2
    battery_lifespan_years: int = 13  # Battery replacement schedule
-   
+
    # Natural gas maintenance schedules (hours/year)
    gas_maintenance_hours: Dict[str, int] = field(default_factory=lambda: {
        'aero': 130,
@@ -135,8 +176,8 @@ class DesignConfig:
        'h_class': 200
    })
    
-   # Turbine lead times (months, based on conservative industry estimates) probably more like 5-7 
-   # Costa spoke to GE and they said 36 across the board
+   # Turbine lead times (months). OEM quotes in 2024-25 cluster near 36 months
+   # across turbine classes — well above the 18-24 month historical norm.
    turbine_lead_times: Dict[str, int] = field(default_factory=lambda: {
        'aero': 36,
        'f_class': 36,
@@ -159,9 +200,9 @@ class DegradationConfig:
    
    # Battery thermal model
    battery_rt_eff: float = 0.90  # Battery efficiency for thermal calculations
-   battery_mth_per_mwh: float = 2.3  # Thermal mass per MWh (�C�h/kW)
-   battery_t_min: float =   23# Minimum battery temperature in climate control (�C)
-   battery_t_max: float = 27  # Maximum battery temperature in climate contorl (�C)
+   battery_mth_per_mwh: float = 2.3  # Thermal mass per MWh (°C·h/kW)
+   battery_t_min: float = 23  # Minimum battery temperature in climate control (°C)
+   battery_t_max: float = 27  # Maximum battery temperature in climate control (°C)
    
    # Gas turbine degradation (capacity%, efficiency% per year)
    gas_degradation_rates: Dict[str, tuple] = field(default_factory=lambda: {
@@ -169,6 +210,18 @@ class DegradationConfig:
        'f_class': (0.0015, 0.0025),
        'h_class': (0.0013, 0.0027)
    })
+
+
+@dataclass
+class WindTurbineConfig:
+   """Wind turbine specifications. Defaults are NREL ATB 2024 Onshore T1."""
+   model_name: str = "NREL_ATB_T1"
+   rated_power_mw: float = 6.0           # MW, NREL ATB 2024 Onshore T1
+   hub_height_m: float = 115.0           # m, NREL ATB 2024 T1
+   rotor_diameter_m: float = 170.0       # m, NREL ATB 2024 T1
+   cut_in_speed_m_per_s: float = 3.0     # m/s, typical modern turbine
+   rated_speed_m_per_s: float = 12.0     # m/s, typical modern turbine
+   cut_out_speed_m_per_s: float = 25.0   # m/s, IEC standard
 
 
 @dataclass
@@ -188,6 +241,7 @@ class Config:
    degradation: DegradationConfig = field(default_factory=DegradationConfig)
    financial: FinancialConfig = field(default_factory=FinancialConfig)
    gas_turbine: GasTurbineConfig = field(default_factory=GasTurbineConfig)
+   wind_turbine: WindTurbineConfig = field(default_factory=WindTurbineConfig)
 
 
 def load_config(path: Optional[str] = None) -> Config:
@@ -205,7 +259,8 @@ def load_config(path: Optional[str] = None) -> Config:
        design=DesignConfig(**data.get('design', {})),
        degradation=DegradationConfig(**data.get('degradation', {})),
        financial=FinancialConfig(**data.get('financial', {})),
-       gas_turbine=GasTurbineConfig(**data.get('gas_turbine', {}))
+       gas_turbine=GasTurbineConfig(**data.get('gas_turbine', {})),
+       wind_turbine=WindTurbineConfig(**data.get('wind_turbine', {}))
    )
 
 
@@ -218,7 +273,8 @@ def save_config(config: Config, path: str):
        'design': config.design.__dict__,
        'degradation': config.degradation.__dict__,
        'financial': config.financial.__dict__,
-       'gas_turbine': config.gas_turbine.__dict__
+       'gas_turbine': config.gas_turbine.__dict__,
+       'wind_turbine': config.wind_turbine.__dict__
    }
    
    with open(path, 'w') as f:

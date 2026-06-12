@@ -275,9 +275,12 @@ def calculate_solar_storage_lcoe(
    # Annual O&M costs
    annual_om = ((solar_mw * config.costs.solar_fixed_om) + (battery_mw * config.costs.storage_fixed_om)) * 1000
    
-   # Battery replacement at configured year
+   # Battery replacement at configured year. Use ceil so the replacement
+   # calendar year stays aligned with ops_start_year (also ceil) when
+   # construction_years is fractional — the degradation anchors assume
+   # replacement at operational year battery_lifespan_years.
    battery_replacement_capex = battery_mw * 1000 * config.costs.bess_cost_y15
-   battery_replacement_year = int(construction_years) + config.design.battery_lifespan_years
+   battery_replacement_year = int(np.ceil(construction_years)) + config.design.battery_lifespan_years
    
    # Build cash flow series
    capex_flows = [0] * config.financial.evaluation_years
@@ -319,7 +322,7 @@ def calculate_solar_storage_lcoe(
 
 def calculate_gas_system_lcoe(
     plant_config: 'PlantConfiguration',
-    gas_price: float,
+    gas_price,  # float OR length-(evaluation_years - ops_start_year) sequence in $/MMBtu
     facility_load: FacilityLoad,
     config: Config,
     construction_years: Optional[float] = None
@@ -328,9 +331,17 @@ def calculate_gas_system_lcoe(
     Calculate LCOE for a natural gas + diesel backup system with proper energy accounting.
     NG generation is based on degraded capacity × availability × hours/year.
     Diesel generation fills the shortfall up to the pre-sized annual EUE.
+
+    gas_price may be:
+      - a scalar float (original behavior, constant price in $/MMBtu across all years), or
+      - a 1-D sequence (list/tuple/ndarray) of annual prices, length must equal
+        the number of operational years (evaluation_years - ops_start_year).
+        Used by fuel_volatility_mc.py.
     """
 
     from degradation_model import get_gas_degradation_factors
+
+    _gas_price_is_vector = hasattr(gas_price, "__len__") and not isinstance(gas_price, str)
 
     # ─────────────────────────────────────────────
     # Setup and constants
@@ -382,6 +393,14 @@ def calculate_gas_system_lcoe(
 
     ops_start_year, first_year_fraction = get_operations_start_info(construction_years)
 
+    n_operational_years = config.financial.evaluation_years - ops_start_year
+    if _gas_price_is_vector:
+        if len(gas_price) != n_operational_years:
+            raise ValueError(
+                f"gas_price vector length {len(gas_price)} != "
+                f"operational years ({n_operational_years})"
+            )
+
     for year in range(ops_start_year, config.financial.evaluation_years):
         operational_year = year - ops_start_year
 
@@ -392,8 +411,13 @@ def calculate_gas_system_lcoe(
             config
         )
 
-        # NG capacity available this year (MW)
-        degraded_capacity_mw = plant_config.total_capacity_mw * cap_factor
+        # NG capacity available this year (MW), net of plant interior aux load.
+        # CAPEX and fixed O&M still scale with gross nameplate; only dispatch
+        # uses the net-at-fence value so it matches the fence-side demand
+        # (required_at_generator_mwh is grossed up through the power-flow
+        # chain but not through the in-plant aux derate).
+        aux_fraction = getattr(plant_config, "aux_load_fraction", 0.0)
+        degraded_capacity_mw = plant_config.total_capacity_mw * cap_factor * (1.0 - aux_fraction)
         ng_possible_mwh = degraded_capacity_mw * plant_config.availability * HOURS_PER_YEAR
         ng_generation_mwh = min(ng_possible_mwh, required_at_generator_mwh)
 
@@ -407,7 +431,8 @@ def calculate_gas_system_lcoe(
 
         # Fuel costs
         heat_rate_btu_per_kwh = 3412 / (plant_config.efficiency * eff_factor)
-        gas_fuel_cost = ng_generation_mwh * (heat_rate_btu_per_kwh / 1000) * gas_price
+        _gas_price_this_year = gas_price[operational_year] if _gas_price_is_vector else gas_price
+        gas_fuel_cost = ng_generation_mwh * (heat_rate_btu_per_kwh / 1000) * _gas_price_this_year
         diesel_fuel_cost = diesel_generation_mwh * (config.costs.diesel_eff / 1000) * config.costs.diesel_cost
 
         # O&M costs
@@ -487,17 +512,19 @@ def calculate_grid_baseline_lcoe(
    opex_flows = [0] * config.financial.evaluation_years
    energy_flows = [0] * config.financial.evaluation_years
    
-   # First partial year
+   # First partial year. NB: annual_energy_mwh (facility.annual_facility_energy_mwh)
+   # is already uptime-derated upstream in it_facil.calculate_facility_load
+   # (operating_hours = uptime_frac * 8760) — do not apply uptime again here.
    if ops_start_year < config.financial.evaluation_years:
        partial_cost = annual_cost * first_year_fraction
-       partial_energy = annual_energy_mwh * (required_uptime_pct / 100) * first_year_fraction
+       partial_energy = annual_energy_mwh * first_year_fraction
        opex_flows[ops_start_year] = partial_cost
        energy_flows[ops_start_year] = partial_energy
-   
+
    # Full operational years
    for year in range(ops_start_year + 1, config.financial.evaluation_years):
        opex_flows[year] = annual_cost
-       energy_flows[year] = annual_energy_mwh * (required_uptime_pct / 100)
+       energy_flows[year] = annual_energy_mwh
    
    opex_npv = calculate_npv(opex_flows, config.financial.discount_rate)
    energy_npv = calculate_npv(energy_flows, config.financial.discount_rate)
@@ -524,15 +551,15 @@ def calculate_gpu_idling_costs(
    
    annual_idling_cost = total_gpus * config.costs.gpu_hour_spot_price * HOURS_PER_YEAR
    
-   # Calculate NPV of idling costs
+   # Calculate NPV of idling costs (mid-year discounting, matching calculate_npv)
    idling_npv = 0
    for year in range(int(construction_years)):
-       idling_npv += annual_idling_cost / ((1 + config.financial.discount_rate) ** year)
-   
+       idling_npv += annual_idling_cost / ((1 + config.financial.discount_rate) ** (year + 0.5))
+
    # Handle fractional year
    if construction_years % 1 > 0:
        fractional_cost = annual_idling_cost * (construction_years % 1)
-       idling_npv += fractional_cost / ((1 + config.financial.discount_rate) ** int(construction_years))
+       idling_npv += fractional_cost / ((1 + config.financial.discount_rate) ** (int(construction_years) + 0.5))
    
    return idling_npv
 
@@ -578,16 +605,19 @@ def get_construction_schedule(construction_years: float) -> List[Tuple[float, fl
 
 def get_operations_start_info(construction_years: float) -> Tuple[int, float]:
     """
-    Calculate when operations start and partial year fraction (0-indexed)
-    
-    Operations begin when construction completes.
-    
+    Calculate when operations start and partial year fraction (0-indexed).
+
+    Convention: operations begin in calendar year ceil(construction_years);
+    when construction_years is fractional, the remaining fraction of a year
+    is credited to that first operational year (not to the year construction
+    actually finishes in).
+
     Examples:
         construction_years = 1.0 → operations start year 1, full year (1.0)
-        construction_years = 1.5 → operations start year 1, half year (0.5)
+        construction_years = 1.5 → operations start year 2, half year (0.5)
         construction_years = 2.0 → operations start year 2, full year (1.0)
-        construction_years = 2.3 → operations start year 2, partial year (0.7)
-    
+        construction_years = 2.3 → operations start year 3, partial year (0.7)
+
     Returns:
         (start_year, first_year_fraction)
     """
@@ -608,18 +638,23 @@ def compare_datacenter_power_systems(
    required_uptime_pct: float = 99,
    location: Tuple[float, float] = (31.77, -106.46),  # Default: El Paso, TX
    gas_price: Optional[float] = None,
-   config: Optional[Config] = None
+   config: Optional[Config] = None,
+   topology: str = "mv_coupled",
 ) -> SystemComparison:
    """
    Compare LCOE across different power system options for a datacenter.
-   
+
    Args:
        total_gpus: Total number of GPUs in the datacenter
        required_uptime_pct: Required system uptime percentage
        location: (latitude, longitude) tuple
        gas_price: Natural gas price in $/MMBtu
        config: Configuration object
-   
+       topology: PV collection network for the solar+storage systems —
+           "mv_coupled" (default, centralized MV spine) or "lv_direct"
+           (modular pod; results tile linearly with facility size). Grid and
+           NG paths are topology-independent.
+
    Returns:
        SystemComparison object with results for all systems
    """
@@ -668,6 +703,7 @@ def compare_datacenter_power_systems(
        required_uptime_pct=required_uptime_pct,
        costs=ac_costs,
        architecture="ac_coupled",
+       topology=topology,
        efficiency_params=cfg,
        verbose=False
    )
@@ -684,6 +720,7 @@ def compare_datacenter_power_systems(
        required_uptime_pct=required_uptime_pct,
        costs=dc_costs,
        architecture="dc_coupled",
+       topology=topology,
        efficiency_params=cfg,
        verbose=False
    )
@@ -763,20 +800,7 @@ def compare_datacenter_power_systems(
                     config=cfg
                 )
    
-   # Use fractional construction years and immediate operational start (I think all this is redundant now)
-   construction_years = best_gas_config.construction_timeline['total_months'] / 12.0
-   ops_start_year, first_year_fraction = get_operations_start_info(construction_years)
-
-  
-   ng_lcoe = LCOEResult(
-        system_type="natural_gas",
-        capex_npv=actual_gas_lcoe.capex_npv,  # ← Use proper values
-        opex_npv=actual_gas_lcoe.opex_npv,    # ← Use proper values  
-        energy_npv=actual_gas_lcoe.energy_npv, # ← Use proper values
-        lcoe=actual_gas_lcoe.lcoe,
-        construction_years=actual_gas_lcoe.construction_years,
-        nameplate_capacity_mw=best_gas_config.total_capacity_mw
-    )
+   ng_lcoe = actual_gas_lcoe
    
    # Step 6: Calculate grid baseline
    grid_lcoe = calculate_grid_baseline_lcoe(

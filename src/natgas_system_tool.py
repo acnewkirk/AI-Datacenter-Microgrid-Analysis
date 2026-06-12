@@ -76,6 +76,11 @@ class PlantConfiguration:
    prob_one_down: float = 0.0   # P(k=N-1) - one unit down
    fuel_btu_yr: float = 0.0
    diesel_design: Optional['SimpleBackupSystemDesign'] = None
+
+   # Plant interior auxiliary load fraction (gross generator output basis).
+   # `efficiency` field is already NET (gross × part-load × (1 - aux)); this
+   # field is retained so dispatch can re-derate gross capacity to net.
+   aux_load_fraction: float = 0.0
    
    # Construction timeline field
    construction_timeline: Optional[Dict[str, int]] = None
@@ -285,13 +290,11 @@ def calculate_eue_forced(plant_config: PlantConfiguration, target_mw: float, con
        # Probability of exactly k units available
        prob_k = comb(N, k) * (A_forced**k) * ((1-A_forced)**(N-k))
        
-       # Shortage magnitude (MW)
+       # Shortage magnitude (MW): demand not served by the k available units
        if k < m:
-           available_capacity = k * P_u
-           required_capacity = min(target_mw, available_capacity + P_u)
-           shortfall_mw = max(0, required_capacity - available_capacity)
+           shortfall_mw = max(0.0, target_mw - k * P_u)
        else:
-           shortfall_mw = 0
+           shortfall_mw = 0.0
        
        # Expected time in this state = probability × total time
        expected_hours_in_state = prob_k * 8760
@@ -356,8 +359,28 @@ def calculate_two_state_probabilities(plant_config: PlantConfiguration, config: 
 # Part-Load Performance Curves
 # ───────────────────────────────────────────────────────────────
 
+def get_aux_load_fraction(
+    turbine_class: str,
+    cycle_type: str,
+    config: Config
+) -> float:
+    """Return plant interior auxiliary load fraction for a (class, cycle) combo.
+
+    Excludes the step-up transformer (modeled separately in the power
+    flow). See GasTurbineConfig.aux_load_fraction docstring for sourcing.
+    """
+    key = f"{turbine_class}_{cycle_type.lower()}"
+    aux_map = config.gas_turbine.aux_load_fraction
+    if key not in aux_map:
+        raise KeyError(
+            f"No aux_load_fraction defined for '{key}'. "
+            f"Available: {list(aux_map.keys())}"
+        )
+    return aux_map[key]
+
+
 def calculate_part_load_efficiency(
-    turbine_class: str, 
+    turbine_class: str,
     load_factor: float,
     config: Optional[Config] = None
 ) -> float:
@@ -547,13 +570,14 @@ def generate_plant_configurations(
                 part_load_multiplier = calculate_part_load_efficiency(
                     turbine.turbine_class, normal_load_factor, cfg
                 )
-                operating_efficiency = cc_efficiency * part_load_multiplier
-                
+                aux_fraction = get_aux_load_fraction(turbine.turbine_class, cycle_type, cfg)
+                operating_efficiency = cc_efficiency * part_load_multiplier * (1.0 - aux_fraction)
+
                 # Map to NREL reference and calculate costs
                 nrel_ref_key = map_to_nrel_reference(turbine.turbine_class, cycle_type, total_capacity)
                 nrel_ref = cfg.costs.ng_costs[nrel_ref_key]
                 scaled_costs = calculate_scaled_costs(nrel_ref, total_capacity, nrel_ref['capacity_mw'], n_units)
-                
+
                 # Create preliminary configuration
                 plant_config = PlantConfiguration(
                     turbine_model=turbine.model,
@@ -568,7 +592,8 @@ def generate_plant_configurations(
                     fixed_om_per_kw_yr=scaled_costs['fixed_om_per_kw'],
                     var_om_per_mwh=scaled_costs['var_om_per_mwh'],
                     nrel_reference=nrel_ref_key,
-                    scaling_factors=scaled_costs['scaling_factors']
+                    scaling_factors=scaled_costs['scaling_factors'],
+                    aux_load_fraction=aux_fraction
                 )
                 
                 # Set construction timeline
@@ -584,7 +609,7 @@ def generate_plant_configurations(
                 rel_components = turbine.get_reliability_components(cfg)
                 plant_config.maint_hours_per_unit = rel_components['maintenance_hours_per_year']
                 plant_config.forced_availability = rel_components['forced_availability']
-                plant_config.eue_forced_mwh = calculate_eue_forced(plant_config, avg_demand_mw, cfg) #may swap to target 
+                plant_config.eue_forced_mwh = calculate_eue_forced(plant_config, avg_demand_mw, cfg)
                 plant_config.eue_maint_mwh = calculate_eue_planned(plant_config, avg_demand_mw, cfg)
                 plant_config.eue_total_mwh = plant_config.eue_forced_mwh + plant_config.eue_maint_mwh
                 
@@ -739,152 +764,3 @@ class NGPowerPlantCalculator:
        #     raise ValueError("Required generation must be positive")
        # if not 90 <= self.required_uptime_pct <= 99.99:
        #     raise ValueError("Uptime percentage must be between 90% and 99.99%")
-   
-   def calculate_plant_parameters(self, turbine_model: str, combined_cycle: bool = False,
-                                gas_price_mmbtu: Optional[float] = None) -> Dict:
-       """
-       Calculate plant parameters for specific configuration (backward compatibility).
-       """
-       if turbine_model not in TURBINE_LIBRARY:
-           raise KeyError(f"Turbine model '{turbine_model}' not found")
-   
-       turbine = TURBINE_LIBRARY[turbine_model]
-       cycle_type = 'CC' if combined_cycle else 'SC'
-       gas_price = gas_price_mmbtu or self.gas_price_mmbtu
-   
-       # Check if configuration is valid
-       if turbine.turbine_class == 'aero' and combined_cycle:
-           raise ValueError("Aeroderivative turbines cannot operate in combined cycle")
-   
-       # Calculate unit capacity
-       if combined_cycle:
-           unit_capacity = calculate_cc_capacity(turbine.capacity_mw, turbine.efficiency, self.config)
-       else:
-           unit_capacity = turbine.capacity_mw
-   
-       # Use EUE analysis to determine optimal unit count
-       configs = []
-       min_units = max(1, int(np.ceil(self.required_generation_mw / unit_capacity)))
-   
-       for n_units in range(min_units, min_units + 6):
-           total_capacity = n_units * unit_capacity
-           normal_load_factor = self.required_generation_mw / total_capacity
-       
-           if combined_cycle:
-               fuel_input_mw = turbine.capacity_mw / turbine.efficiency
-               cc_efficiency = unit_capacity / fuel_input_mw
-           else:
-               cc_efficiency = turbine.efficiency
-       
-           part_load_multiplier = calculate_part_load_efficiency(
-               turbine.turbine_class, normal_load_factor
-           )
-           operating_efficiency = cc_efficiency * part_load_multiplier
-       
-           # Map to NREL reference and calculate costs
-           nrel_ref_key = map_to_nrel_reference(turbine.turbine_class, cycle_type, total_capacity)
-           nrel_ref = self.config.costs.ng_costs[nrel_ref_key]
-           scaled_costs = calculate_scaled_costs(nrel_ref, total_capacity, nrel_ref['capacity_mw'], n_units)
-       
-           config = PlantConfiguration(
-               turbine_model=turbine.model,
-               turbine_class=turbine.turbine_class,
-               n_units=n_units,
-               cycle_type=cycle_type,
-               unit_capacity_mw=unit_capacity,
-               total_capacity_mw=total_capacity,
-               efficiency=operating_efficiency,
-               availability=turbine.availability,
-               capex_per_kw=scaled_costs['capex_per_kw'],
-               fixed_om_per_kw_yr=scaled_costs['fixed_om_per_kw'],
-               var_om_per_mwh=scaled_costs['var_om_per_mwh'],
-               nrel_reference=nrel_ref_key,
-               scaling_factors=scaled_costs['scaling_factors']
-           )
-           
-           # Set construction timeline
-           config.construction_timeline = calculate_construction_timeline(
-               turbine.turbine_class, n_units, combined_cycle, self.config
-           )
-       
-           # Apply engineering filter
-           filter_cfg = FilterConfig()
-           if passes_engineering_filter(config, self.required_generation_mw, filter_cfg):
-               # Calculate EUE components
-               rel_components = turbine.get_reliability_components(self.config)
-               config.forced_availability = rel_components['forced_availability']
-               config.eue_forced_mwh = calculate_eue_forced(config, self.required_generation_mw, self.config)
-               config.eue_maint_mwh = calculate_eue_planned(config, self.required_generation_mw, self.config)
-               config.eue_total_mwh = config.eue_forced_mwh + config.eue_maint_mwh
-               config.prob_all_units, config.prob_one_down = calculate_two_state_probabilities(config, self.config)
-           
-               configs.append(config)
-   
-       if not configs:
-           raise ValueError("No valid configurations found for specified turbine")
-   
-       # Select configuration with minimum EUE (most reliable)
-       optimal_config = min(configs, key=lambda c: c.eue_total_mwh)
-   
-       # Calculate fuel cost (basic calculation without LCOE)
-       heat_rate_btu_kwh = 3412 / optimal_config.efficiency
-       fuel_cost_per_mwh = (heat_rate_btu_kwh / 1000) * gas_price
-   
-       # Size diesel backup
-       if self.include_backup:
-           diesel_design = size_diesel_backup_from_eue(
-               optimal_config.eue_total_mwh,
-               self.required_generation_mw, 
-               self.config
-           )
-           optimal_config.diesel_design = diesel_design
-   
-       # Build result dictionary (maintaining backward compatibility)
-       result = {
-           'fleet_description': f"{optimal_config.n_units}× {optimal_config.turbine_model} {cycle_type}",
-           'nameplate_capacity_mw': optimal_config.total_capacity_mw,
-           'required_capacity_mw': self.required_generation_mw,
-           'efficiency_hhv': optimal_config.efficiency / self.config.efficiency.lhv_to_hhv,
-           'efficiency_lhv': optimal_config.efficiency,
-           'unit_capacity_mw': optimal_config.unit_capacity_mw,
-           'n_units': optimal_config.n_units,
-           'capex_per_kw': optimal_config.capex_per_kw,
-           'fixed_om_per_kw_yr': optimal_config.fixed_om_per_kw_yr,
-           'var_om_per_mwh': optimal_config.var_om_per_mwh,
-           'fuel_cost_per_mwh': fuel_cost_per_mwh,
-           'heat_rate_btu_kwh': heat_rate_btu_kwh,
-           'combined_cycle': combined_cycle,
-           'total_nominal_capex': optimal_config.capex_per_kw * optimal_config.total_capacity_mw * 1000,
-           'system_reliability': optimal_config.availability * 100,
-           'nrel_reference': optimal_config.nrel_reference,
-           'scaling_applied': optimal_config.scaling_factors,
-           'construction_years': optimal_config.construction_timeline['construction_years'],
-           'construction_months': optimal_config.construction_timeline['total_months'],
-           'turbine_lead_time_months': optimal_config.construction_timeline['turbine_lead_time'],
-       
-           # New EUE-based reliability metrics
-           'eue_forced_mwh_per_year': optimal_config.eue_forced_mwh,
-           'eue_maintenance_mwh_per_year': optimal_config.eue_maint_mwh,
-           'eue_total_mwh_per_year': optimal_config.eue_total_mwh,
-           'forced_availability': optimal_config.forced_availability,
-           'prob_all_units_running': optimal_config.prob_all_units,
-           'prob_one_unit_down': optimal_config.prob_one_down,
-       }
-   
-       # Add diesel backup info if included
-       if self.include_backup and optimal_config.diesel_design:
-           result.update({
-               'diesel_gensets_required': optimal_config.diesel_design.n_gensets_required,
-               'diesel_gensets_total': optimal_config.diesel_design.n_gensets_total,
-               'diesel_capacity_mw': optimal_config.diesel_design.total_capacity_mw,
-               'diesel_fuel_storage_gallons': optimal_config.diesel_design.fuel_storage_gallons,
-               'diesel_runtime_hours': optimal_config.diesel_design.runtime_hours_at_full_load,
-               'diesel_capex': optimal_config.diesel_design.total_capex,
-               'diesel_annual_om': optimal_config.diesel_design.annual_fixed_om,
-           })
-   
-       result['required_generation_mw'] = self.required_generation_mw
-   
-       return result
-
-

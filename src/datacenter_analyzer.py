@@ -13,6 +13,7 @@ from config import Config, load_config
 # Import required modules
 from pue_tool import select_optimal_cooling_system, fetch_weather_data
 from it_facil import calculate_facility_load, FacilityLoad
+from nsrdb_loader import get_nsrdb_tmy
 
 # Configure logging
 logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -74,17 +75,15 @@ class DatacenterAnalyzer:
         # STEP 1: Fetch FULL TMY data once and cache it
         if self.weather_df is None:
             logger.info("Fetching full TMY weather data...")
-            # Fetch the FULL PVGIS TMY dataset (not the reduced PUE version)
-            from pvlib import iotools
-            self.weather_df = iotools.get_pvgis_tmy(self.latitude, self.longitude)[0]
-        
-            # Create the reduced version for PUE tool
-            pue_weather_df = pd.DataFrame({
-                'hour': range(len(self.weather_df)),
-                'temperature_c': self.weather_df['temp_air'].values,
-                'humidity_pct': self.weather_df['relative_humidity'].values
-            })
-    
+            self.weather_df = get_nsrdb_tmy(self.latitude, self.longitude)
+
+        # Create the reduced version for PUE tool
+        pue_weather_df = pd.DataFrame({
+            'hour': range(len(self.weather_df)),
+            'temperature_c': self.weather_df['temp_air'].values,
+            'humidity_pct': self.weather_df['relative_humidity'].values
+        })
+
         # STEP 2: Get optimal cooling system using the reduced TMY data
         self.pue_results = select_optimal_cooling_system(
             latitude=self.latitude,

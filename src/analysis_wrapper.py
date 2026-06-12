@@ -13,24 +13,27 @@ def analyze_datacenter_simple(
     longitude: float,
     required_uptime: float = 99.0,
     gas_price: Optional[float] = None,
+    topology: str = "mv_coupled",
 ):
     """
     Simple datacenter analysis that outputs LCOE comparison table
-    
+
     Args:
         gpus: Number of GPUs
         latitude: Latitude of location
-        longitude: Longitude of location  
+        longitude: Longitude of location
         required_uptime: Required uptime percentage (default 99%)
         gas_price: Natural gas price $/MMBtu (default 3.5)
+        topology: "mv_coupled" (default) or "lv_direct" PV collection network
     """
-    
+
     # Run the comprehensive comparison
     comparison = compare_datacenter_power_systems(
         total_gpus=gpus,
         required_uptime_pct=required_uptime,
         location=(latitude, longitude),
-        gas_price=gas_price
+        gas_price=gas_price,
+        topology=topology,
     )
     
     # Get the actual gas price used
@@ -56,9 +59,14 @@ def analyze_datacenter_simple(
     # System capacities with land footprint
     print(f"\nSYSTEM CAPACITIES:")
     
-    # Calculate land areas in km
-    ac_land_km2 = ((comparison.ac_solar_mw * 5) + (comparison.ac_battery_mwh * 0.25)) * 0.00404686
-    dc_land_km2 = ((comparison.dc_solar_mw * 5) + (comparison.dc_battery_mwh * 0.25)) * 0.00404686
+    # Calculate land areas in sq km using the same factors as the optimizer
+    sq_km_per_acre = 0.00404686
+    solar_acres_per_mw = config.design.solar_acres_per_mw
+    battery_acres_per_mwh = config.design.battery_acres_per_mwh
+    ac_land_km2 = ((comparison.ac_solar_mw * solar_acres_per_mw) +
+                   (comparison.ac_battery_mwh * battery_acres_per_mwh)) * sq_km_per_acre
+    dc_land_km2 = ((comparison.dc_solar_mw * solar_acres_per_mw) +
+                   (comparison.dc_battery_mwh * battery_acres_per_mwh)) * sq_km_per_acre
     
     print(f"AC Solar+Storage: {comparison.ac_solar_mw:.0f} MW solar / {comparison.ac_battery_mw:.0f} MW ({comparison.ac_battery_mwh:.0f} MWh) battery - {ac_land_km2:.1f}sq km")
     print(f"DC Solar+Storage: {comparison.dc_solar_mw:.0f} MW solar / {comparison.dc_battery_mw:.0f} MW ({comparison.dc_battery_mwh:.0f} MWh) battery - {dc_land_km2:.1f}sq km")
@@ -110,7 +118,25 @@ LOCATIONS = {
 
 if __name__ == "__main__":
     import sys
-    
+
+    # Optional --topology flag (lv|mv or full names); extracted before
+    # positional parsing so existing positional usage is unchanged.
+    topology = "mv_coupled"
+    if "--topology" in sys.argv:
+        idx = sys.argv.index("--topology")
+        try:
+            value = sys.argv[idx + 1]
+        except IndexError:
+            print("Error: --topology requires a value (lv_direct or mv_coupled)")
+            sys.exit(1)
+        aliases = {"lv": "lv_direct", "mv": "mv_coupled",
+                   "lv_direct": "lv_direct", "mv_coupled": "mv_coupled"}
+        if value not in aliases:
+            print(f"Error: unknown topology '{value}' (use lv_direct or mv_coupled)")
+            sys.exit(1)
+        topology = aliases[value]
+        del sys.argv[idx:idx + 2]
+
     # Check if command line arguments provided
     if len(sys.argv) > 1:
         # Parse command line arguments
@@ -127,8 +153,8 @@ if __name__ == "__main__":
                 lat = float(sys.argv[2])
                 lon = float(sys.argv[3])
             else:
-                print("Usage: python analysis_wrapper.py <gpus> <location_preset>")
-                print("   or: python analysis_wrapper.py <gpus> <latitude> <longitude> [uptime] [gas_price]")
+                print("Usage: python analysis_wrapper.py <gpus> <location_preset> [--topology lv|mv]")
+                print("   or: python analysis_wrapper.py <gpus> <latitude> <longitude> [uptime] [gas_price] [--topology lv|mv]")
                 print(f"Available presets: {list(LOCATIONS.keys())}")
                 sys.exit(1)
             
@@ -142,20 +168,22 @@ if __name__ == "__main__":
                 latitude=lat,
                 longitude=lon,
                 required_uptime=uptime,
-                gas_price=gas_price
+                gas_price=gas_price,
+                topology=topology,
             )
-            
+
         except (ValueError, IndexError) as e:
             print(f"Error: {e}")
-            print("Usage: python analysis_wrapper.py <gpus> <location_preset>")
-            print("   or: python analysis_wrapper.py <gpus> <latitude> <longitude> [uptime] [gas_price]")
+            print("Usage: python analysis_wrapper.py <gpus> <location_preset> [--topology lv|mv]")
+            print("   or: python analysis_wrapper.py <gpus> <latitude> <longitude> [uptime] [gas_price] [--topology lv|mv]")
             sys.exit(1)
     else:
         # No arguments - run default example
         print("Running default example (10,000 GPUs in El Paso)...")
-        print("For custom analysis, use: python analysis_wrapper.py <gpus> <latitude> <longitude>")
+        print("For custom analysis, use: python analysis_wrapper.py <gpus> <latitude> <longitude> [--topology lv|mv]")
         analyze_datacenter_simple(
             gpus=10000,
             latitude=31.77,
-            longitude=-106.46
+            longitude=-106.46,
+            topology=topology,
         )

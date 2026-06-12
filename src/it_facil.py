@@ -83,21 +83,21 @@ class FacilityLoad:
    facility_load_max_mw: float
    facility_load_design_mw: float
    design_ambient_temp_c: float
-   # NEW: Disaggregated design loads
+   # Disaggregated design loads
    it_load_design_mw: float
    cooling_load_design_mw: float
 
    annual_it_energy_mwh: float
    annual_facility_energy_mwh: float
    annual_facility_energy_gwh: float
-   # NEW: Disaggregated annual energy
+   # Disaggregated annual energy
    annual_cooling_energy_mwh: float
    
    # ───────── Hourly arrays (optional on construction) ─────────
    hourly_pue: Optional[np.ndarray] = None
    hourly_it_load_mw: Optional[np.ndarray] = None
    hourly_facility_load_mw: Optional[np.ndarray] = field(init=False, default=None)
-   # NEW: Disaggregated hourly load
+   # Disaggregated hourly load
    hourly_cooling_load_mw: Optional[np.ndarray] = field(init=False, default=None)
 
    # ───────── Weather cache ─────────
@@ -294,11 +294,9 @@ def calculate_facility_load(
        annual_facility_energy_gwh=annual_facility_energy_gwh,
        hourly_it_load_mw=processed_hourly_it_load,
        hourly_pue=hourly_pue,
-       design_ambient_temp_c=design_ambient_temp_c,  # NEW
-       tmy_weather=tmy_weather, 
+       design_ambient_temp_c=design_ambient_temp_c,
+       tmy_weather=tmy_weather,
    )
-
-# ... (The rest of the file remains the same) ...
 
 def calculate_facility_load_with_csv(
    total_gpus: int,

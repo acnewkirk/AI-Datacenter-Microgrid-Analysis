@@ -1,4 +1,4 @@
-
+﻿
 """
 PUE Selection Tool for Data Center Cooling Systems
 Selects optimal cooling system based on annual average PUE for a given location
@@ -9,8 +9,7 @@ import pandas as pd
 from pathlib import Path
 from typing import Dict, List, Optional
 import logging
-from pvlib import iotools
-import requests
+from nsrdb_loader import get_nsrdb_tmy
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -18,34 +17,27 @@ logger = logging.getLogger(__name__)
 
 def fetch_weather_data(latitude: float, longitude: float) -> pd.DataFrame:
     """
-    Fetch hourly weather data from PVGIS TMY dataset.
-    
+    Fetch hourly weather data from NSRDB TMY dataset.
+
     Args:
         latitude: Location latitude
         longitude: Location longitude
-        
+
     Returns:
         DataFrame with columns: hour, temperature_c, humidity_pct
     """
     logger.info(f"Fetching weather data for ({latitude:.3f}, {longitude:.3f})")
-    
-    try:
-        # Fetch TMY data from PVGIS (returns tuple of dataframe, metadata, and inputs)
-        weather_data = iotools.get_pvgis_tmy(latitude, longitude)[0]
-        logger.info(f"Successfully fetched PVGIS TMY data with {len(weather_data)} hours")
-        
-        # Extract temperature and humidity
-        result_df = pd.DataFrame({
-            'hour': range(len(weather_data)),
-            'temperature_c': weather_data['temp_air'].values,  # Air temperature in Celsius
-            'humidity_pct': weather_data['relative_humidity'].values  # Relative humidity in %
-        })
-        
-        return result_df
-        
-    except requests.exceptions.HTTPError as e:
-        logger.error(f"Failed to fetch PVGIS data: {e}")
-        raise ValueError(f"Could not fetch weather data for location ({latitude}, {longitude})")
+
+    weather_data = get_nsrdb_tmy(latitude, longitude)
+    logger.info(f"Successfully fetched NSRDB TMY data with {len(weather_data)} hours")
+
+    result_df = pd.DataFrame({
+        'hour': range(len(weather_data)),
+        'temperature_c': weather_data['temp_air'].values,
+        'humidity_pct': weather_data['relative_humidity'].values,
+    })
+
+    return result_df
 
 
 def load_pue_lookup_table(case_number: int, lookup_dir: str = "output_tables") -> pd.DataFrame:
@@ -238,3 +230,32 @@ def select_optimal_cooling_system(
     
     return results
 
+
+# Example usage and testing
+if __name__ == "__main__":
+    # Test with a specific location (e.g., Phoenix, AZ)
+    test_latitude = 33.4484
+    test_longitude = -112.0740
+    
+    try:
+        results = select_optimal_cooling_system(
+            latitude=test_latitude,
+            longitude=test_longitude,
+            case_numbers=[1,2, 14,15, 16, 17],
+            lookup_dir="output_tables"
+        )
+        
+        print("\n=== PUE Selection Results ===")
+        print(f"Location: ({test_latitude}, {test_longitude})")
+        print(f"Weather stats: {results['weather_stats']}")
+        print(f"\nOptimal cooling system: Case {results['optimal_case']}")
+        print(f"Annual average PUE: {results['optimal_annual_pue']:.3f}")
+        print(f"Maximum PUE: {results['optimal_max_pue']:.3f}")
+        print("\nAll cases evaluated:")
+        for case, stats in results['all_cases'].items():
+            print(f"  Case {case}: Annual PUE = {stats['annual_pue']:.3f}, "
+                  f"Max PUE = {stats['max_pue']:.3f}")
+            
+    except Exception as e:
+        logger.error(f"Error in PUE selection: {e}")
+        raise

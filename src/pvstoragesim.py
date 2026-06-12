@@ -1,7 +1,6 @@
 ﻿"""
-PV Storage Simulation Engine - Refactored to use config.py
+PV Storage Simulation Engine 
 Simulates hour-by-hour operation of solar+battery microgrids with architecture-specific power flow modeling.
-Based on efficient vectorized approach with PVGIS integration. 
 """
 
 import numpy as np
@@ -9,14 +8,13 @@ import pandas as pd
 from dataclasses import dataclass
 from typing import Optional, Dict, Tuple
 import logging
-import requests
-import time
 import tzfpy  # Timezone lookup library
 import rainflow  # For cycle counting
-from pvlib import pvsystem, modelchain, location, iotools
+from pvlib import pvsystem, modelchain, location
 from it_facil import FacilityLoad
 from power_systems_estimator import PowerFlowAnalyzer
 from config import Config, load_config
+from nsrdb_loader import get_nsrdb_tmy
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -48,14 +46,13 @@ def get_solar_generation(
     surface_tilt: float = 20,
     surface_azimuth: float = 180,
     facility_load: Optional[FacilityLoad] = None,
-    config: Optional[Config] = None,
-    architecture: str = "ac_coupled"
 ) -> pd.DataFrame:
     """
-    Fetch hourly solar generation profile from PVGIS or use cached TMY data.
+    Fetch hourly solar generation profile from NSRDB or use cached TMY data.
+
+    Returns a raw normalized profile, independent of architecture/topology;
+    inverter clipping is applied downstream in evaluate_system.
     """
-    cfg = config or load_config()
-    
     logger.info(f"Fetching solar data for ({latitude:.3f}, {longitude:.3f})")
     
     if system_type.lower() == "fixed-tilt":
@@ -104,12 +101,8 @@ def get_solar_generation(
             weather_data = None
     
     if weather_data is None:
-        try:
-            weather_data = iotools.get_pvgis_tmy(latitude, longitude)[0]
-            logger.info("Successfully fetched fresh PVGIS TMY data")
-        except requests.exceptions.HTTPError as e:
-            logger.error(f"Failed to fetch PVGIS data: {e}")
-            raise ValueError(f"Could not fetch solar data for location ({latitude}, {longitude})")
+        weather_data = get_nsrdb_tmy(latitude, longitude)
+        logger.info("Successfully fetched fresh NSRDB TMY data")
 
     model.run_model(weather_data)
 
@@ -129,20 +122,14 @@ def get_solar_generation(
         p_dc_normalized = dc_power_values / max_dc
     else:
         raise ValueError("Zero solar generation detected")
-    
-    if architecture == "ac_coupled":
-        cfg = config or load_config()
-        ilr = cfg.efficiency.inverter_load_ratio
-        inverter_limit = 1.0 / ilr
-        p_dc_normalized = np.minimum(p_dc_normalized, inverter_limit)
-    
+
     solar_profile = pd.DataFrame({
         'hour': range(len(dc_power_values)),
         'p_dc': p_dc_normalized
     })
     
     capacity_factor = p_dc_normalized.mean()
-    data_source = "cached TMY" if facility_load and hasattr(facility_load, 'tmy_weather') and facility_load.tmy_weather is not None else "fresh PVGIS"
+    data_source = "cached TMY" if facility_load and hasattr(facility_load, 'tmy_weather') and facility_load.tmy_weather is not None else "fresh NSRDB"
     logger.info(f"Solar profile generated from {data_source} - capacity factor: {capacity_factor:.3f}")
     
     return solar_profile
@@ -154,38 +141,61 @@ def simulate_battery_operation(
     battery_energy_mwh: float,
     hourly_bus_load_mw: np.ndarray,
     solar_to_bus_mult: float,
-    bus_to_battery_mult: float,
+    solar_to_battery_mult: float,
     battery_to_bus_mult: float,
+    inverter_cap_mw_dc: Optional[float] = None,
     initial_soc: float = 50,
 ) -> Dict[str, np.ndarray]:
     """
-    Hourly simulation of battery operation for one year, performed at the main bus.
+    Vectorized one-year battery dispatch. Load is served first from solar; any
+    surplus solar charges the battery drawn *upstream* of the load bus (via
+    `solar_to_battery_mult`), and the battery discharges to the load bus (via
+    `battery_to_bus_mult`).
+
+    `inverter_cap_mw_dc` (mv_coupled AC only) caps the solar->load path at the
+    inverter rating; PV above the cap is still available to the DC-coupled
+    battery, so clipped energy is recaptured rather than discarded. Pass None
+    (DC architectures, and AC lv_direct whose profile is pre-clipped) to leave
+    the load path uncapped.
     """
     n_hours = len(solar_dc_mw)
-    
+
     if len(hourly_bus_load_mw) != n_hours:
         raise ValueError(f"Bus load array length ({len(hourly_bus_load_mw)}) must match solar array length ({n_hours})")
-    
+
     battery_soc = np.zeros(n_hours + 1)
     battery_soc[0] = (initial_soc / 100.0) * battery_energy_mwh
     battery_charge_mw = np.zeros(n_hours)
     battery_discharge_mw = np.zeros(n_hours)
     curtailed_solar_mw = np.zeros(n_hours)
     unmet_load_mw = np.zeros(n_hours)
-    
-    solar_at_bus_mw = solar_dc_mw / solar_to_bus_mult
+
+    # Solar that can reach the load bus is inverter-limited when a cap is set
+    # (mv_coupled AC). The DC-coupled battery can still absorb PV above the cap.
+    if inverter_cap_mw_dc is not None:
+        solar_dc_to_bus = np.minimum(solar_dc_mw, inverter_cap_mw_dc)
+    else:
+        solar_dc_to_bus = solar_dc_mw
+    solar_at_bus_mw = solar_dc_to_bus / solar_to_bus_mult
     power_balance_at_bus = solar_at_bus_mw - hourly_bus_load_mw
-    
+
     for t in range(n_hours):
         if power_balance_at_bus[t] > 0:
-            excess_at_bus = power_balance_at_bus[t]
+            # Load fully served by solar. Charge the battery from leftover PV
+            # measured upstream (DC) — for mv_coupled AC this includes the
+            # clipped portion above the inverter cap.
+            dc_used_for_load = hourly_bus_load_mw[t] * solar_to_bus_mult
+            leftover_pv_dc = solar_dc_mw[t] - dc_used_for_load
             max_charge_at_battery = min(battery_power_mw, battery_energy_mwh - battery_soc[t])
-            charge_at_battery = min(excess_at_bus / bus_to_battery_mult, max_charge_at_battery)
+            charge_at_battery = min(leftover_pv_dc / solar_to_battery_mult, max_charge_at_battery)
             battery_charge_mw[t] = charge_at_battery
             battery_soc[t + 1] = battery_soc[t] + charge_at_battery
-            power_used_for_charging_at_bus = charge_at_battery * bus_to_battery_mult
-            curtailed_solar_mw[t] = excess_at_bus - power_used_for_charging_at_bus
+            dc_used_for_charging = charge_at_battery * solar_to_battery_mult
+            curtailed_solar_mw[t] = leftover_pv_dc - dc_used_for_charging
         else:
+            # Deficit: discharge to the bus. No charging this hour, so any
+            # clipped PV during an inverter-capped deficit hour is curtailed
+            # (a thin edge case in an overbuilt islanded system).
             deficit_at_bus = -power_balance_at_bus[t]
             max_discharge_from_battery = min(battery_power_mw, battery_soc[t])
             max_discharge_at_bus = max_discharge_from_battery / battery_to_bus_mult
@@ -194,7 +204,7 @@ def simulate_battery_operation(
             battery_discharge_mw[t] = discharge_from_battery
             battery_soc[t + 1] = battery_soc[t] - discharge_from_battery
             unmet_load_mw[t] = deficit_at_bus - discharge_at_bus
-    
+
     return {
         'battery_soc': battery_soc[:-1],
         'battery_charge_mw': battery_charge_mw,
@@ -206,9 +216,11 @@ def simulate_battery_operation(
 
 
 def extract_stress_features(hd: pd.DataFrame) -> Optional[Dict]:
-    """
-    - FINAL VERSION - Uses pd.cut for robust binning.
-    """
+    """Extract battery stress features for the degradation surrogate: mean SOC,
+    rainflow half-cycle counts and EFC contributions binned by depth of
+    discharge (right-closed bins (a, b] over [0, 1]), and discharge throughput.
+    SOC is normalized by the maximum SOC reached during the year (intended
+    simplification; equals nameplate whenever the battery fully charges)."""
     try:
         cap = hd['battery_soc_mwh'].max()
         if not np.isfinite(cap) or cap == 0:
@@ -223,25 +235,17 @@ def extract_stress_features(hd: pd.DataFrame) -> Optional[Dict]:
         cycle_counts_by_dod = np.zeros(len(dod_bins) - 1)
         efc_sum_by_dod = np.zeros(len(dod_bins) - 1)
 
-        # -FIX- Replace manual binning with the more robust pd.cut function
-        # This correctly handles floating point inaccuracies at bin edges.
-        if half_cycles:
-            # Extract just the ranges (DoDs) for efficient binning
-            do_ds = [cycle[0] for cycle in half_cycles]
-            
-            # Use pd.cut to get the bin index for every half-cycle at once
-            # right=True ensures that a value like 0.2 lands in the (0.1, 0.2] bin.
-            binned_indices = pd.cut(do_ds, bins=dod_bins, labels=False, include_lowest=True, right=True)
-            
-            # Aggregate results using the calculated bins
-            for i, dod in enumerate(do_ds):
-                bin_idx = binned_indices[i]
-                if pd.notna(bin_idx):
-                    bin_idx = int(bin_idx)
-                    cycle_counts_by_dod[bin_idx] += 0.5
-                    efc_sum_by_dod[bin_idx] += 0.5 * dod
-                
-        discharge_throughput = float(hd['battery_discharge_mw'].abs().sum())
+        # Right-closed bins (a, b], matching pd.cut(right=True). Values outside
+        # [0, 1] are dropped.
+        do_ds_arr = np.fromiter((cycle[0] for cycle in half_cycles), dtype=float)
+        if do_ds_arr.size:
+            n_bins = len(dod_bins) - 1
+            bin_idx = np.digitize(do_ds_arr, dod_bins, right=True) - 1
+            valid = (bin_idx >= 0) & (bin_idx < n_bins)
+            np.add.at(cycle_counts_by_dod, bin_idx[valid], 0.5)
+            np.add.at(efc_sum_by_dod, bin_idx[valid], 0.5 * do_ds_arr[valid])
+
+        discharge_throughput = float(np.abs(hd['battery_discharge_mw'].to_numpy()).sum())
 
         return {
             'mean_soc': mean_soc,
@@ -261,6 +265,7 @@ def evaluate_system(
     facility_load: FacilityLoad,
     hourly_pue: Optional[np.ndarray] = None,
     architecture: str = "ac_coupled",
+    topology: str = "mv_coupled",
     efficiency_params: Optional[Config] = None,
     solar_profile: Optional[pd.DataFrame] = None,
     battery_duration_hours: float = 4.0,
@@ -270,33 +275,47 @@ def evaluate_system(
     Simulate solar+battery system operation for one year.
     """
     cfg = efficiency_params or load_config()
-    
+
     if solar_profile is None:
         solar_profile = get_solar_generation(
-            latitude, longitude, facility_load=facility_load,
-            config=cfg, architecture=architecture  
+            latitude, longitude, facility_load=facility_load
         )
-    
+
     hourly_it_load_mw = facility_load.hourly_it_load_mw
     hourly_cooling_load_mw = facility_load.hourly_cooling_load_mw
-    
-    analyzer = PowerFlowAnalyzer(cfg)
+
+    analyzer = PowerFlowAnalyzer(cfg, topology=topology)
     mult = analyzer.get_bus_architecture_multipliers(architecture)
-    
+
     hourly_bus_load_mw = (hourly_it_load_mw * mult['bus_to_it'] +
                           hourly_cooling_load_mw * mult['bus_to_cooling'])
-    
+
     battery_energy_mwh = battery_power_mw * battery_duration_hours
     solar_dc_mw = solar_profile['p_dc'].values * solar_capacity_mw
-    
+
+    # Inverter clipping, by architecture/topology:
+    #  - AC lv_direct: the battery sits behind the single inverter, so PV
+    #    above the inverter rating is unrecoverable — clip the PV array.
+    #  - AC mv_coupled: DC-coupled storage taps the PV DC link pre-inverter —
+    #    cap only the solar->load path; the battery recaptures PV above it.
+    #  - DC architectures: no inverter on the PV path; no cap.
+    inverter_cap_mw_dc = None
+    if architecture == "ac_coupled":
+        inverter_limit_mw = solar_capacity_mw / cfg.efficiency.inverter_load_ratio
+        if topology == "lv_direct":
+            solar_dc_mw = np.minimum(solar_dc_mw, inverter_limit_mw)
+        else:  # mv_coupled
+            inverter_cap_mw_dc = inverter_limit_mw
+
     sim_results = simulate_battery_operation(
         solar_dc_mw=solar_dc_mw,
         battery_power_mw=battery_power_mw,
         battery_energy_mwh=battery_energy_mwh,
         hourly_bus_load_mw=hourly_bus_load_mw,
         solar_to_bus_mult=mult['solar_to_bus'],
-        bus_to_battery_mult=mult['bus_to_battery'],
+        solar_to_battery_mult=mult['solar_to_battery'],
         battery_to_bus_mult=mult['battery_to_bus'],
+        inverter_cap_mw_dc=inverter_cap_mw_dc,
         initial_soc=75.0
     )
     
