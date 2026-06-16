@@ -32,8 +32,10 @@ Methodological details, validation, and results are in the paper. When referenci
 Install dependencies:
 
 ```bash
-pip install numpy pandas scipy pvlib pyarrow rainflow tzfpy reverse_geocoder scikit-learn requests
+pip install numpy pandas scipy pvlib pyarrow rainflow tzfpy reverse_geocoder "scikit-learn>=1.8,<1.9" requests
 ```
+
+`scikit-learn` is pinned to match `fade_surrogate.pkl`, a fitted estimator built under 1.8.0 and loaded at runtime.
 
 Weather data comes from NSRDB (PSM4 TMY) via the NLR (formerly NREL) API.
 Request a free key at https://developer.nlr.gov/signup/ and set two
