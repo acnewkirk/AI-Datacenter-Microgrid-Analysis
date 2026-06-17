@@ -35,7 +35,7 @@ Install dependencies:
 pip install numpy pandas scipy pvlib pyarrow rainflow tzfpy reverse_geocoder "scikit-learn>=1.8,<1.9" requests
 ```
 
-`scikit-learn` is pinned to match `fade_surrogate.pkl`, a fitted estimator built under 1.8.0 and loaded at runtime.
+`scikit-learn` is pinned to match `fade_surrogate.pkl`, a fitted estimator built under 1.8.0 and loaded at runtime. The figure-reproduction notebook under `notebooks/` additionally requires `geopandas`, `cartopy`, `h3`, and `shapely`.
 
 Weather data comes from NSRDB (PSM4 TMY) via the NLR (formerly NREL) API.
 Request a free key at https://developer.nlr.gov/signup/ and set two
@@ -50,8 +50,7 @@ Fetched locations are cached under `output_tables/nsrdb_cache/` and load
 without a key afterwards. Requires internet access for uncached locations.
 
 > **Note (June 2026):** this README reflects an interim update accompanying
-> the manuscript revision; a full revision (including a figure-reproduction
-> notebook) will follow.
+> the manuscript revision; a full revision will follow.
 
 ## Quick Start
 
@@ -152,9 +151,13 @@ The returned object contains per-system LCOE and speed-premium LCOE, capacities,
 | `degradation_full.csv` / `.parquet` | Source degradation data |
 | `training_X/y_cal/cyc.npy` | Preprocessed training arrays |
 
-### Runtime data — fetched from PVGIS API
+### Runtime weather data — fetched from NSRDB (PSM4 TMY) via the NLR API
 
-TMY weather data (temperature, humidity, irradiance) for the specified location, retrieved automatically during analysis.
+TMY weather (temperature, humidity, irradiance) for the requested location is
+retrieved automatically on first use and cached as parquet under
+`output_tables/nsrdb_cache/` (git-ignored), which then loads without an API key
+on subsequent runs. The first fetch for a location requires an NLR API key — see
+[Requirements & Setup](#requirements--setup).
 
 ## Configuration
 
