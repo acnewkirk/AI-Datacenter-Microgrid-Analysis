@@ -37,20 +37,20 @@ pip install numpy pandas scipy pvlib pyarrow rainflow tzfpy reverse_geocoder "sc
 
 `scikit-learn` is pinned to match `fade_surrogate.pkl`, a fitted estimator built under 1.8.0 and loaded at runtime. The figure-reproduction notebook under `notebooks/` additionally requires `geopandas`, `cartopy`, `h3`, and `shapely`.
 
-Weather data comes from NSRDB (PSM4 TMY) via the NLR (formerly NREL) API.
-Request a free key at https://developer.nlr.gov/signup/ and set two
-environment variables before first run:
+Weather data comes from NSRDB (PSM4 TMY) via the NLR (formerly NREL) API, so
+the model needs an API key. Request a free key at
+https://developer.nlr.gov/signup/ and set two environment variables before your
+first run:
 
 ```bash
 export NLR_API_KEY=your_key
 export NLR_EMAIL=you@example.com
 ```
 
-Fetched locations are cached under `output_tables/nsrdb_cache/` and load
-without a key afterwards. Requires internet access for uncached locations.
-
-> **Note (June 2026):** this README reflects an interim update accompanying
-> the manuscript revision; a full revision will follow.
+Each location's weather is fetched once and written to
+`output_tables/nsrdb_cache/` (git-ignored); later runs of the same location
+read from there and need no key or network. Delete that folder anytime to force
+a refetch.
 
 ## Quick Start
 
@@ -154,10 +154,9 @@ The returned object contains per-system LCOE and speed-premium LCOE, capacities,
 ### Runtime weather data — fetched from NSRDB (PSM4 TMY) via the NLR API
 
 TMY weather (temperature, humidity, irradiance) for the requested location is
-retrieved automatically on first use and cached as parquet under
-`output_tables/nsrdb_cache/` (git-ignored), which then loads without an API key
-on subsequent runs. The first fetch for a location requires an NLR API key — see
-[Requirements & Setup](#requirements--setup).
+fetched at runtime and cached as parquet under `output_tables/nsrdb_cache/`. See
+[Requirements & Setup](#requirements--setup) for the API key and environment
+variables.
 
 ## Configuration
 
