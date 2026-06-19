@@ -14,7 +14,7 @@ When you run an analysis, the tool follows this pipeline:
 Location + GPUs + Required Uptime
   → Weather fetch + cooling system selection → Facility load profile
     → Solar+battery optimization (AC & DC coupled)   ┐
-    → Natural gas plant sizing + diesel backup       ├→ 27-year LCOE comparison
+    → Natural gas plant sizing + diesel backup       ├→ Architecture LCOE comparison
     → Grid baseline (state-level price lookup)       ┘
 ```
 
