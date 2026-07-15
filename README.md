@@ -144,6 +144,17 @@ The returned object contains per-system LCOE and speed-premium LCOE, capacities,
 | `hourly_load_data.csv` | Normalized 8760-hour IT load shape (from Inference Demand Model) |
 | `fade_surrogate.pkl` | Trained grey-box battery fade model (Arrhenius scaffold + Gaussian process residuals) |
 
+**Cooling System Cases** — PUE lookup tables are indexed by case number:
+
+| Case | Cooling System |
+|------|---|
+| 1 | Large adiabatic water chiller |
+| 2 | Large water-side economizer water chiller |
+| 14 | Immersion/DTC liquid dry cooler air cooled chiller |
+| 15 | Immersion/DTC liquid water-side economizer water cooled chiller |
+| 16 | Immersion/DTC liquid dry/hybrid cooler air cooled chiller |
+| 17 | Mid-size dry cooler air cooled chiller |
+
 ### `proxy_training/` — training data for the fade surrogate (not needed at runtime)
 
 | File | Description |
