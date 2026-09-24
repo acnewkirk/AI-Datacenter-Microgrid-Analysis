@@ -433,7 +433,7 @@ def calculate_gas_system_lcoe(
         heat_rate_btu_per_kwh = 3412 / (plant_config.efficiency * eff_factor)
         _gas_price_this_year = gas_price[operational_year] if _gas_price_is_vector else gas_price
         gas_fuel_cost = ng_generation_mwh * (heat_rate_btu_per_kwh / 1000) * _gas_price_this_year
-        diesel_fuel_cost = diesel_generation_mwh * (config.costs.diesel_eff / 1000) * config.costs.diesel_cost
+        diesel_fuel_cost = diesel_generation_mwh * (config.costs.diesel_eff ) * config.costs.diesel_cost
 
         # O&M costs
         gas_var_om = ng_generation_mwh * plant_config.var_om_per_mwh
