@@ -48,9 +48,9 @@ class CostConfig:
    dgx_node_price: float = 350000  # $/DGX H100 node (8 GPUs)
    
    diesel_genset_cost_per_kw: float = 800
-   diesel_tank_cost_per_gallon: float = 3.00  # $/gallon for diesel storage tank
+   diesel_tank_cost_per_gallon: float = 5.00  # $/gallon for diesel storage tank
    diesel_cost: float = 3.40 # $/gallon, USA avg diesel price as of july 2025, adjusted to 2022 dollars.
-   diesel_eff: float = 250 # gallons per MWh, average diesel generator efficiency NREL backup gen doc
+   diesel_eff: float = 75.2 # gallons per MWh, average diesel generator efficiency NREL backup gen doc
    diesel_var_om_per_mwh: float = 12.0    # $/MWh non-fuel
    diesel_test_hours_per_year: float = 24.0  # default annual testing hours per diesel unit. Based on 2 hours of monthly testing per gen
 
