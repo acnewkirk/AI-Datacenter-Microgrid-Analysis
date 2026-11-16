@@ -247,8 +247,7 @@ def save_config(config: Config, path: str):
        'design': config.design.__dict__,
        'degradation': config.degradation.__dict__,
        'financial': config.financial.__dict__,
-       'gas_turbine': config.gas_turbine.__dict__,
-       'wind_turbine': config.wind_turbine.__dict__
+       'gas_turbine': config.gas_turbine.__dict__
    }
    
    with open(path, 'w') as f:
