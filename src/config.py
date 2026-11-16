@@ -60,9 +60,7 @@ class CostConfig:
 class EfficiencyConfig:
    """Power conversion and system efficiency parameters"""
    # Power conversion stages
-   # NB: the former generic `dc_dc` stage (0.97) was folded into
-   # `battery_converter` (0.98) — the battery discharge path was its only
-   # consumer.
+   
    ac_dc: float = 0.96  # AC-DC rectification efficiency
    dc_ac: float = 0.96  # DC-AC inversion efficiency
    transformer: float = 0.98
@@ -99,7 +97,7 @@ class EfficiencyConfig:
    # 98.7% peak (academic SiC prototypes), ~99% (Tian et al. 2020), 99.6%
    # design target at 200 kW (ORNL OSTI 2229095); full-SST figures (e.g.
    # Kopacz et al. 2024: 98.1% at 1 MW) include AC stages and are lower
-   # bounds for the DC-DC stage alone. Used by MV-coupled DC topology only.
+   # bounds for the DC-DC stage alone. 
    mvdc_converter: float = 0.98
 
 @dataclass
@@ -121,23 +119,10 @@ class GasTurbineConfig:
     # Covers GT/ST equipment auxiliaries, BOP pumps, fuel gas compression
     # (PR-dependent), cooling system parasitics, and indirect loads
     # (instrument/service air, plant HVAC, etc.).
-    #
-    # Does NOT include the generator step-up transformer — that loss is
-    # modeled explicitly in power_systems_estimator.py as part of the
-    # source-to-bus path. Including step-up here would double-count.
-    #
     # Values anchored on EIA AEO Capital Cost Estimates (gross-to-net
     # derate, with the ~0.5% step-up transformer stripped) and Gülen 2011
-    # Table 1 (plant interior aux for ISO rating, ACC cooling assumption).
-    # Cooling system: ACC assumed (water-stressed siting consistent with
-    # data center colocation context).
-    #
-    # SC values for high-PR machines (aero, H-class) reflect fuel-gas
-    # compression at PR>20 per Gülen Eq. 2. F-class SC operates below the
-    # fuel compression threshold (PR 16-18).
-    #
-    # CC values include steam-side BOP (HRSG feed pumps, condensate pumps,
-    # ACC fans) — adds ~0.5 pp over the corresponding SC value.
+   
+ 
     aux_load_fraction: Dict[str, float] = field(default_factory=lambda: {
         'aero_sc':     0.020,
         'f_class_sc':  0.015,
@@ -212,16 +197,6 @@ class DegradationConfig:
    })
 
 
-@dataclass
-class WindTurbineConfig:
-   """Wind turbine specifications. Defaults are NREL ATB 2024 Onshore T1."""
-   model_name: str = "NREL_ATB_T1"
-   rated_power_mw: float = 6.0           # MW, NREL ATB 2024 Onshore T1
-   hub_height_m: float = 115.0           # m, NREL ATB 2024 T1
-   rotor_diameter_m: float = 170.0       # m, NREL ATB 2024 T1
-   cut_in_speed_m_per_s: float = 3.0     # m/s, typical modern turbine
-   rated_speed_m_per_s: float = 12.0     # m/s, typical modern turbine
-   cut_out_speed_m_per_s: float = 25.0   # m/s, IEC standard
 
 
 @dataclass
@@ -259,8 +234,7 @@ def load_config(path: Optional[str] = None) -> Config:
        design=DesignConfig(**data.get('design', {})),
        degradation=DegradationConfig(**data.get('degradation', {})),
        financial=FinancialConfig(**data.get('financial', {})),
-       gas_turbine=GasTurbineConfig(**data.get('gas_turbine', {})),
-       wind_turbine=WindTurbineConfig(**data.get('wind_turbine', {}))
+       gas_turbine=GasTurbineConfig(**data.get('gas_turbine', {}))
    )
 
 
