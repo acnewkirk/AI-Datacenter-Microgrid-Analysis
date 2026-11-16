@@ -216,8 +216,7 @@ class Config:
    degradation: DegradationConfig = field(default_factory=DegradationConfig)
    financial: FinancialConfig = field(default_factory=FinancialConfig)
    gas_turbine: GasTurbineConfig = field(default_factory=GasTurbineConfig)
-   wind_turbine: WindTurbineConfig = field(default_factory=WindTurbineConfig)
-
+  
 
 def load_config(path: Optional[str] = None) -> Config:
    """Load configuration from JSON file or return defaults"""
