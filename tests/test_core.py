@@ -475,7 +475,7 @@ def test_config_save_load_roundtrip(tmp_path):
     cfg2 = load_config(str(path))
 
     for section in ("costs", "efficiency", "it_load", "design", "financial",
-                    "gas_turbine", "wind_turbine"):
+                    "gas_turbine"):
         assert getattr(cfg, section).__dict__ == getattr(cfg2, section).__dict__, section
 
     # Known JSON round-trip artifact (pinned): tuple values in

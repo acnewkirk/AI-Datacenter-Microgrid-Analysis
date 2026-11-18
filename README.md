@@ -22,19 +22,25 @@ Location + GPUs + Required Uptime
 
 >  Newkirk, Alex C., Daniel L. Gerber, Erica R. H. Fuchs, et al. 2026. “Speed-to-Power Dominates Energy Costs for AI Data Centers: Technoeconomic Analysis of Powering AI in the Continental United States.” arXiv:2611.17098. Preprint, arXiv, November 12. https://doi.org/10.48550/arXiv.2611.17098.
 
-Methodological details, validation, and results are all documented in that paper. When referencing this codebase please cite the associated manuscript. 
+Methodological details, validation, and results are all documented in that paper.
+
+## Citing
+
+Please cite the paper above for the methods and results. Each tagged release of this repository is also archived on Zenodo with a version-specific DOI; if you use or modify the code, cite the DOI of the version you used so the exact code can be recovered. Citation metadata for both are in [`CITATION.cff`](CITATION.cff), and GitHub's "Cite this repository" button formats them.
 
 ## Requirements & Setup
 
-**Python >= 3.10**
+**Python >= 3.11** (the pinned versions below are tested on Python 3.13)
 
 Install dependencies:
 
 ```bash
-pip install numpy pandas scipy pvlib pyarrow rainflow tzfpy reverse_geocoder "scikit-learn>=1.8,<1.9" requests
+pip install -r requirements.txt
 ```
 
-`scikit-learn` is pinned to match `fade_surrogate.pkl`, a fitted estimator built under 1.8.0 and loaded at runtime. The figure-reproduction notebook under `notebooks/` additionally requires `geopandas`, `cartopy`, `h3`, and `shapely`.
+`requirements.txt` pins the versions the test suite passes under. `scikit-learn` in particular must stay on 1.8.x to match `fade_surrogate.pkl`, a fitted estimator built under 1.8.0 and loaded at runtime. The figure-reproduction notebook under `notebooks/` additionally needs the packages in `requirements-figures.txt` (`pip install -r requirements-figures.txt`); `cartopy` and `geopandas` install more reliably from conda-forge.
+
+Run the tests from the repository root with `python -m pytest tests -q`.
 
 Weather data comes from NSRDB (PSM4 TMY) via the NLR (formerly NREL) API, so
 the model needs an API key. Request a free key at

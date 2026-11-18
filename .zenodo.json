@@ -1,0 +1,30 @@
+{
+  "upload_type": "software",
+  "title": "AI Datacenter Microgrids Analysis Tool",
+  "description": "<p>Technoeconomic model comparing levelized cost of electricity for AI datacenter power supply options (AC- and DC-coupled solar+storage, natural gas with diesel backup, and utility grid) at any location in the continental United States, including a speed-adjusted LCOE that prices the opportunity cost of GPU-hours lost to construction time.</p><p>This is the code accompanying Newkirk et al., \"Speed-to-Power Dominates Energy Costs for AI Data Centers: Technoeconomic Analysis of Powering AI in the Continental United States\" (arXiv:2611.17098). Methods, validation, and parameter sourcing are documented in that paper.</p>",
+  "creators": [
+    {
+      "name": "Newkirk, Alex C.",
+      "orcid": "0000-0002-6213-6865",
+      "affiliation": "Carnegie Mellon University"
+    }
+  ],
+  "license": "MIT",
+  "keywords": [
+    "data centers",
+    "artificial intelligence",
+    "microgrids",
+    "levelized cost of electricity",
+    "solar plus storage",
+    "natural gas",
+    "technoeconomic analysis"
+  ],
+  "related_identifiers": [
+    {
+      "identifier": "10.48550/arXiv.2611.17098",
+      "relation": "isSupplementTo",
+      "scheme": "doi",
+      "resource_type": "publication-preprint"
+    }
+  ]
+}

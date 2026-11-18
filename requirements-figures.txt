@@ -1,0 +1,8 @@
+# Additional dependencies for notebooks/reproduce_paper_figures.ipynb.
+# cartopy and geopandas install more reliably from conda-forge than from pip.
+-r requirements.txt
+matplotlib==3.10.8
+geopandas==1.1.2
+cartopy==0.25.0
+h3==4.4.2
+shapely==2.1.2
