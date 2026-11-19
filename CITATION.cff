@@ -16,10 +16,18 @@ authors:
     given-names: Alex C.
     orcid: "https://orcid.org/0000-0002-6213-6865"
     affiliation: Carnegie Mellon University
+doi: 10.5281/zenodo.17704494
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.17704494
+    description: Concept DOI, resolving to the latest version
+  - type: doi
+    value: 10.5281/zenodo.24356132
+    description: Version 2.0.0
 repository-code: "https://github.com/acnewkirk/AI-Datacenter-Microgrid-Analysis"
 license: MIT
 version: 2.0.0
-date-released: "2026-11-18"
+date-released: "2026-11-19"
 keywords:
   - data centers
   - artificial intelligence

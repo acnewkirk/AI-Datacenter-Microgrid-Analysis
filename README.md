@@ -1,5 +1,7 @@
 # AI Datacenter Microgrids Analysis Tool
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.17704494.svg)](https://doi.org/10.5281/zenodo.17704494)
+
 Comparing levelized cost of electricity (LCOE) for datacenter power supply options — solar+storage, natural gas, and grid — at any US location.
 
 ## Overview
@@ -26,7 +28,7 @@ Methodological details, validation, and results are all documented in that paper
 
 ## Citing
 
-Please cite the paper above for the methods and results. Each tagged release of this repository is also archived on Zenodo with a version-specific DOI; if you use or modify the code, cite the DOI of the version you used so the exact code can be recovered. Citation metadata for both are in [`CITATION.cff`](CITATION.cff), and GitHub's "Cite this repository" button formats them.
+Please cite the paper above for the methods and results. Each tagged release of this repository is also archived on Zenodo with a version-specific DOI; if you use or modify the code, cite the DOI of the version you used so the exact code can be recovered. The DOI [10.5281/zenodo.17704494](https://doi.org/10.5281/zenodo.17704494) always resolves to the latest version and lists all earlier ones. Citation metadata for both are in [`CITATION.cff`](CITATION.cff), and GitHub's "Cite this repository" button formats them.
 
 ## Requirements & Setup
 
