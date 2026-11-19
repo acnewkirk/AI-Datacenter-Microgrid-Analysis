@@ -160,6 +160,10 @@ The returned object contains per-system LCOE and speed-premium LCOE, capacities,
 | 16 | Immersion/DTC liquid dry/hybrid cooler air cooled chiller |
 | 17 | Mid-size dry cooler air cooled chiller |
 
+### `output_tables/lcoe_results.csv` — paper results (not needed at runtime)
+
+CONUS-wide LCOE results as submitted with the manuscript, one row per H3 hexagon and facility size (24k, 50k, 100k, and 750k GPUs). Read by `notebooks/reproduce_paper_figures.ipynb` to draw the paper's figures.
+
 ### `proxy_training/` — training data for the fade surrogate (not needed at runtime)
 
 | File | Description |
