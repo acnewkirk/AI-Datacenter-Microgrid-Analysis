@@ -1,0 +1,61 @@
+cff-version: 1.2.0
+message: >-
+  If you use this software, please cite the associated paper (preferred
+  citation below). To identify the exact code version used, also cite the
+  versioned software DOI from Zenodo.
+type: software
+title: "AI Datacenter Microgrids Analysis Tool"
+abstract: >-
+  Technoeconomic model comparing levelized cost of electricity for AI
+  datacenter power supply options (AC- and DC-coupled solar+storage, natural
+  gas with diesel backup, and utility grid) at any location in the continental
+  United States, including a speed-adjusted LCOE that prices the opportunity
+  cost of GPU-hours lost to construction time.
+authors:
+  - family-names: Newkirk
+    given-names: Alex C.
+    orcid: "https://orcid.org/0000-0002-6213-6865"
+    affiliation: Carnegie Mellon University
+repository-code: "https://github.com/acnewkirk/AI-Datacenter-Microgrid-Analysis"
+license: MIT
+version: 2.0.0
+date-released: "2026-11-18"
+keywords:
+  - data centers
+  - artificial intelligence
+  - microgrids
+  - levelized cost of electricity
+  - solar plus storage
+  - natural gas
+  - technoeconomic analysis
+preferred-citation:
+  type: article
+  title: >-
+    Speed-to-Power Dominates Energy Costs for AI Data Centers:
+    Technoeconomic Analysis of Powering AI in the Continental United States
+  authors:
+    - family-names: Newkirk
+      given-names: Alex C.
+      orcid: "https://orcid.org/0000-0002-6213-6865"
+    - family-names: Gerber
+      given-names: Daniel L.
+    - family-names: Fuchs
+      given-names: Erica R. H.
+    - family-names: Hubbard
+      given-names: Alex
+    - family-names: Morgan
+      given-names: M. Granger
+    - family-names: Shehabi
+      given-names: Arman
+    - family-names: Smith
+      given-names: Sarah J.
+    - family-names: Samaras
+      given-names: Constantine
+  year: 2026
+  month: 11
+  doi: 10.48550/arXiv.2611.17098
+  url: "https://doi.org/10.48550/arXiv.2611.17098"
+  journal: arXiv
+  identifiers:
+    - type: other
+      value: "arXiv:2611.17098"

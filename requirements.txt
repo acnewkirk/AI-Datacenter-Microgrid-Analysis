@@ -1,0 +1,13 @@
+# Runtime dependencies for src/, pinned to the versions the test suite passes under
+# (Python 3.13.11). scikit-learn must stay on 1.8.x: fade_surrogate.pkl is a fitted
+# estimator built under 1.8.0.
+numpy==2.4.2
+pandas==2.3.3
+scipy==1.17.0
+pvlib==0.14.0
+pyarrow==23.0.1
+rainflow==3.2.0
+tzfpy==1.1.1
+reverse_geocoder==1.5.1
+scikit-learn==1.8.0
+pytest==9.0.2
